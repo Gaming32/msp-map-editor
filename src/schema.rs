@@ -186,7 +186,7 @@ impl MpsMaterial {
     /// Return value: `(u1, v1, u2, v2)`
     pub fn to_uv_coords(self) -> (f32, f32, f32, f32) {
         let u = (self.0 % ATLAS_SIZE.0) as f32 / ATLAS_SIZE.0 as f32;
-        let v = (self.0 / ATLAS_SIZE.0) as f32 / ATLAS_SIZE.1 as f32;
+        let v = (ATLAS_SIZE.1 - 1 - self.0 / ATLAS_SIZE.0) as f32 / ATLAS_SIZE.1 as f32;
         (
             u,
             v,
@@ -197,7 +197,7 @@ impl MpsMaterial {
 
     pub fn from_uv_coords(u: f32, v: f32) -> Self {
         let x = (u * ATLAS_SIZE.0 as f32) as AtlasCoordValue;
-        let y = (v * ATLAS_SIZE.1 as f32) as AtlasCoordValue;
+        let y = ATLAS_SIZE.1 - 1 - (v * ATLAS_SIZE.1 as f32) as AtlasCoordValue;
         Self(y * ATLAS_SIZE.0 + x)
     }
 }

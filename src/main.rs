@@ -3,11 +3,12 @@ mod load_file;
 mod schema;
 mod ui;
 mod utils;
+mod viewport;
 
 use crate::load_file::LoadFilePlugin;
 use crate::ui::MapEditorUi;
+use crate::viewport::ViewportPlugin;
 use bevy::prelude::*;
-use bevy::render::render_resource::TextureFormat;
 use bevy_panic_handler::PanicHandler;
 use directories::ProjectDirs;
 use std::fs;
@@ -26,9 +27,6 @@ impl Directories {
     }
 }
 
-#[derive(Resource)]
-pub struct ViewportTarget(Handle<Image>);
-
 pub struct MapEditor;
 
 impl Plugin for MapEditor {
@@ -42,27 +40,16 @@ impl Plugin for MapEditor {
             }
         }
 
-        app.add_plugins((LoadFilePlugin, MapEditorUi));
-
+        app.add_plugins((LoadFilePlugin, ViewportPlugin, MapEditorUi));
         app.add_systems(
             Startup,
-            |mut commands: Commands, mut images: ResMut<Assets<Image>>| {
-                let viewport_texture = images.add(Image::new_target_texture(
-                    1,
-                    1,
-                    TextureFormat::Rgba8UnormSrgb,
-                ));
-                commands.insert_resource(ViewportTarget(viewport_texture.clone()));
-
-                commands.spawn(Camera2d);
-
+            |mut commands: Commands,
+             mut meshes: ResMut<Assets<Mesh>>,
+             mut materials: ResMut<Assets<StandardMaterial>>| {
                 commands.spawn((
-                    Camera {
-                        target: viewport_texture.into(),
-                        ..Default::default()
-                    },
-                    Camera3d::default(),
-                    Transform::from_xyz(-2.5, 4.5, 9.0).looking_at(Vec3::ZERO, Vec3::Y),
+                    Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
+                    MeshMaterial3d(materials.add(Color::srgb_u8(124, 144, 255))),
+                    Transform::from_xyz(0.0, 0.5, 0.0),
                 ));
             },
         );

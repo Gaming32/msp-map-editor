@@ -1,7 +1,8 @@
+use crate::Directories;
 use crate::docking::UiDocking;
 use crate::load_file::{LoadedFile, new_file, open_file, save_file, save_file_as};
 use crate::schema::MapFile;
-use crate::{Directories, ViewportTarget};
+use crate::viewport::ViewportTarget;
 use bevy::prelude::Image as BevyImage;
 use bevy::prelude::*;
 use bevy::render::render_resource::Extent3d;
@@ -10,6 +11,7 @@ use bevy_file_dialog::prelude::*;
 use bevy_mod_imgui::prelude::*;
 use imgui::Image as ImguiImage;
 use std::mem;
+use std::time::Duration;
 
 pub struct MapEditorUi;
 
@@ -23,9 +25,8 @@ impl Plugin for MapEditorUi {
         }
 
         app.insert_resource(UiState {
-            ui_setup: false,
-            viewport_texture: None,
-            pending_close_state: PendingCloseState::None,
+            free_timer: Timer::new(Duration::from_millis(500), TimerMode::Repeating),
+            ..Default::default()
         })
         .add_plugins((
             imgui_plugin,
@@ -42,10 +43,12 @@ impl Plugin for MapEditorUi {
     }
 }
 
-#[derive(Resource)]
+#[derive(Resource, Default)]
 pub struct UiState {
-    ui_setup: bool,
+    setup_complete: bool,
     viewport_texture: Option<TextureId>,
+    textures_to_free: Vec<TextureId>,
+    free_timer: Timer,
     pending_close_state: PendingCloseState,
 }
 
@@ -69,24 +72,35 @@ impl UiState {
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "This system requires a lot of arguments"
+)]
 fn draw_imgui(
     mut context: NonSendMut<ImguiContext>,
     mut state: ResMut<UiState>,
+    time: Res<Time>,
     current_open_file: Res<LoadedFile>,
     mut commands: Commands,
     window_query: Query<Entity, With<PrimaryWindow>>,
-    viewport_target: Option<Res<ViewportTarget>>,
+    viewport_target: Res<ViewportTarget>,
     mut images: ResMut<Assets<BevyImage>>,
 ) {
-    if state.viewport_texture.is_none()
-        && let Some(target) = &viewport_target
-    {
-        state.viewport_texture = Some(context.register_bevy_texture(target.0.clone()));
+    if state.viewport_texture.is_none() {
+        state.viewport_texture = Some(context.register_bevy_texture(viewport_target.0.clone()));
+    }
+
+    state.free_timer.tick(time.delta());
+    if state.free_timer.just_finished() && !state.textures_to_free.is_empty() {
+        let len = state.textures_to_free.len() - 1;
+        for texture in state.textures_to_free.drain(..len) {
+            context.unregister_bevy_texture(&texture);
+        }
     }
 
     let ui = context.ui();
 
-    if !state.ui_setup {
+    if !state.setup_complete {
         ui.dockspace_over_viewport().split(
             Direction::Left,
             0.8,
@@ -98,7 +112,7 @@ fn draw_imgui(
                 right.dock_window("Tile settings");
             },
         );
-        state.ui_setup = true;
+        state.setup_complete = true;
     } else {
         ui.dockspace_over_main_viewport();
     }
@@ -141,20 +155,19 @@ fn draw_imgui(
             if dest_size[0] < 1.0 || dest_size[1] < 1.0 {
                 return;
             }
-            if let Some(target) = viewport_target {
-                let target_size = UVec2::new(dest_size[0] as u32, dest_size[1] as u32);
-                if images
-                    .get(&target.0)
-                    .is_some_and(|i| i.size() != target_size)
-                {
-                    let real_image = images.get_mut(&target.0).unwrap();
-                    real_image.resize_in_place(Extent3d {
-                        width: target_size.x,
-                        height: target_size.y,
-                        depth_or_array_layers: 1,
-                    });
-                    state.viewport_texture = None;
-                }
+            let target_size = UVec2::new(dest_size[0] as u32, dest_size[1] as u32);
+            if images
+                .get(&viewport_target.0)
+                .is_some_and(|i| i.size() != target_size)
+            {
+                let real_image = images.get_mut(&viewport_target.0).unwrap();
+                real_image.resize_in_place(Extent3d {
+                    width: target_size.x,
+                    height: target_size.y,
+                    depth_or_array_layers: 1,
+                });
+                state.textures_to_free.push(texture);
+                state.viewport_texture = None;
             }
             ImguiImage::new(texture, dest_size).build(ui);
         }
