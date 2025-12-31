@@ -1,8 +1,9 @@
-mod open_file;
+mod load_file;
 mod schema;
 mod ui;
+mod utils;
 
-use crate::open_file::OpenFilePlugin;
+use crate::load_file::LoadFilePlugin;
 use crate::ui::MapEditorUi;
 use bevy::prelude::*;
 use bevy_panic_handler::PanicHandler;
@@ -13,7 +14,7 @@ pub struct MapEditor;
 
 impl Plugin for MapEditor {
     fn build(&self, app: &mut App) {
-        app.add_plugins((OpenFilePlugin, MapEditorUi));
+        app.add_plugins((LoadFilePlugin, MapEditorUi));
 
         app.add_systems(Startup, |mut commands: Commands| {
             commands.spawn(Camera3d::default());
@@ -26,7 +27,7 @@ fn main() {
         .add_plugins((
             DefaultPlugins.set(WindowPlugin {
                 primary_window: Some(Window {
-                    title: format!("{TITLE} - Untitled"),
+                    title: TITLE.to_string(),
                     ..Default::default()
                 }),
                 close_when_requested: false,

@@ -1,9 +1,11 @@
+use crate::utils::grid_as_vec_vec;
+use grid::{Grid, grid};
 use monostate::{MustBe, MustBeBool};
 use serde::{Deserialize, Serialize};
 use serde_with::OneOrMany;
 use serde_with::serde_as;
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MapFile {
     pub starting_tile: MpsVec2,
@@ -13,7 +15,23 @@ pub struct MapFile {
     pub skybox: CubeMap,
     pub dark_skybox: CubeMap,
     pub atlas: String,
-    pub data: Vec<Vec<TileData>>,
+    #[serde(with = "grid_as_vec_vec")]
+    pub data: Grid<TileData>,
+}
+
+impl Default for MapFile {
+    fn default() -> Self {
+        Self {
+            starting_tile: Default::default(),
+            shop_warp_tiles: Default::default(),
+            tutorial_star: Default::default(),
+            tutorial_shop: Default::default(),
+            skybox: Default::default(),
+            dark_skybox: Default::default(),
+            atlas: Default::default(),
+            data: grid![[TileData::default()]],
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug, Default, Serialize, Deserialize)]
@@ -128,7 +146,7 @@ impl Default for Connection {
 }
 
 #[serde_as]
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct WallMaterialMap {
     #[serde(rename = "n")]
     #[serde_as(as = "OneOrMany<_>")]
@@ -145,6 +163,17 @@ pub struct WallMaterialMap {
     #[serde(rename = "w")]
     #[serde_as(as = "OneOrMany<_>")]
     pub west: Vec<MpsMaterial>,
+}
+
+impl Default for WallMaterialMap {
+    fn default() -> Self {
+        Self {
+            north: vec![Default::default()],
+            east: vec![Default::default()],
+            south: vec![Default::default()],
+            west: vec![Default::default()],
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]

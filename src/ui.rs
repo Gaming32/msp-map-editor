@@ -1,4 +1,4 @@
-use crate::open_file::{OpenFile, new_file, open_file, save_file, save_file_as};
+use crate::load_file::{LoadedFile, new_file, open_file, save_file, save_file_as};
 use crate::schema::MapFile;
 use bevy::prelude::*;
 use bevy::window::{PrimaryWindow, WindowCloseRequested};
@@ -35,7 +35,7 @@ pub struct UiState {
     pending_close_state: PendingCloseState,
 }
 
-type BoxedCloseHandler = Box<dyn FnOnce(&mut Commands, &mut OpenFile) + Send + Sync>;
+type BoxedCloseHandler = Box<dyn FnOnce(&mut Commands, &mut LoadedFile) + Send + Sync>;
 
 #[derive(Default)]
 enum PendingCloseState {
@@ -49,7 +49,7 @@ enum PendingCloseState {
 impl UiState {
     pub fn request_close_file(
         &mut self,
-        action: impl FnOnce(&mut Commands, &mut OpenFile) + Send + Sync + 'static,
+        action: impl FnOnce(&mut Commands, &mut LoadedFile) + Send + Sync + 'static,
     ) {
         self.pending_close_state = PendingCloseState::PendingUi(Box::new(action));
     }
@@ -58,7 +58,7 @@ impl UiState {
 fn imgui(
     mut context: NonSendMut<ImguiContext>,
     mut state: ResMut<UiState>,
-    current_open_file: Res<OpenFile>,
+    current_open_file: Res<LoadedFile>,
     mut commands: Commands,
     window_query: Query<Entity, With<PrimaryWindow>>,
 ) {
@@ -142,7 +142,7 @@ fn keyboard_handler(
     keys: Res<ButtonInput<KeyCode>>,
     mut commands: Commands,
     mut ui_state: ResMut<UiState>,
-    current_open_file: Res<OpenFile>,
+    current_open_file: Res<LoadedFile>,
 ) {
     macro_rules! modifier_key {
         (Ctrl) => {
@@ -185,7 +185,7 @@ fn close_handler(
     mut close_requested: MessageReader<WindowCloseRequested>,
     mut ui_state: ResMut<UiState>,
     // primary_window: Query<Entity, With<PrimaryWindow>>,
-    mut open_file: ResMut<OpenFile>,
+    mut open_file: ResMut<LoadedFile>,
 ) {
     for event in close_requested.read() {
         let window = event.window;

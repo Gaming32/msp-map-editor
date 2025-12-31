@@ -15,35 +15,40 @@ use std::path::PathBuf;
 use std::{env, fs, io};
 
 #[derive(Resource, Default)]
-pub struct OpenFile {
+pub struct LoadedFile {
     pub path: Option<PathBuf>,
     pub dirty: bool,
     pub file: MapFile,
 }
 
-impl OpenFile {
+impl LoadedFile {
     pub fn mark_dirty(&mut self, commands: &mut Commands) {
         self.dirty = true;
-        commands.write_message(UpdateHeaderMessage);
+        commands.write_message(UpdateHeader);
     }
 }
 
-pub struct OpenFilePlugin;
+pub struct LoadFilePlugin;
 
-impl Plugin for OpenFilePlugin {
+impl Plugin for LoadFilePlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<OpenFile>();
-        app.add_message::<SavedFile>();
-        app.add_message::<UpdateHeaderMessage>();
-        app.add_systems(Startup, initial_open_file);
-        app.add_systems(Update, file_state_handler);
+        app.init_resource::<LoadedFile>()
+            .add_message::<FileLoaded>()
+            .add_message::<FileSaved>()
+            .add_message::<UpdateHeader>()
+            .add_systems(Startup, initial_open_file)
+            .add_systems(Update, file_state_handler);
     }
 }
+
+#[derive(Message, Default)]
+pub struct FileLoaded;
 
 pub fn new_file(ui_state: &mut UiState) {
     ui_state.request_close_file(|commands, open_file| {
-        *open_file = OpenFile::default();
-        commands.write_message(UpdateHeaderMessage);
+        *open_file = LoadedFile::default();
+        commands.write_message(UpdateHeader);
+        commands.write_message(FileLoaded);
     });
 }
 
@@ -57,10 +62,10 @@ pub fn open_file(ui_state: &mut UiState) {
     });
 }
 
-pub fn save_file(commands: &mut Commands, open_file: &OpenFile) {
+pub fn save_file(commands: &mut Commands, open_file: &LoadedFile) {
     if let Some(file_path) = &open_file.path {
         if let Some(data) = get_write_data(open_file) {
-            commands.write_message(SavedFile {
+            commands.write_message(FileSaved {
                 result: fs::write(file_path, data),
                 path: file_path.clone(),
             });
@@ -70,7 +75,7 @@ pub fn save_file(commands: &mut Commands, open_file: &OpenFile) {
     }
 }
 
-pub fn save_file_as(commands: &mut Commands, open_file: &OpenFile) {
+pub fn save_file_as(commands: &mut Commands, open_file: &LoadedFile) {
     if let Some(data) = get_write_data(open_file) {
         commands
             .dialog()
@@ -81,17 +86,18 @@ pub fn save_file_as(commands: &mut Commands, open_file: &OpenFile) {
 }
 
 #[derive(Message)]
-struct SavedFile {
+struct FileSaved {
     pub result: io::Result<()>,
     pub path: PathBuf,
 }
 
 #[derive(Message, Default)]
-struct UpdateHeaderMessage;
+struct UpdateHeader;
 
 fn initial_open_file(
-    mut open_file: ResMut<OpenFile>,
-    mut update_header_message: MessageWriter<UpdateHeaderMessage>,
+    mut open_file: ResMut<LoadedFile>,
+    mut update_header_message: MessageWriter<UpdateHeader>,
+    mut ui_state: ResMut<UiState>,
 ) {
     if let Some(path) = env::args_os().nth(1) {
         let path = PathBuf::from(path);
@@ -105,15 +111,18 @@ fn initial_open_file(
         if handle_load(&mut open_file, &data, path) {
             update_header_message.write_default();
         }
+    } else {
+        new_file(&mut ui_state);
     }
 }
 
 fn file_state_handler(
     mut loaded_reader: MessageReader<DialogFileLoaded<MapFile>>,
-    mut saved_reader: MessageReader<SavedFile>,
+    mut saved_reader: MessageReader<FileSaved>,
     mut saved_as_reader: MessageReader<DialogFileSaved<MapFile>>,
-    mut update_header_reader: MessageReader<UpdateHeaderMessage>,
-    mut open_file: ResMut<OpenFile>,
+    mut update_header_reader: MessageReader<UpdateHeader>,
+    mut loaded_writer: MessageWriter<FileLoaded>,
+    mut open_file: ResMut<LoadedFile>,
     mut window_query: Query<&mut Window, With<PrimaryWindow>>,
 ) {
     let mut update_header = {
@@ -126,6 +135,7 @@ fn file_state_handler(
     for loaded in loaded_reader.read() {
         if handle_load(&mut open_file, &loaded.contents, loaded.path.clone()) {
             update_header = true;
+            loaded_writer.write_default();
         }
     }
 
@@ -158,7 +168,7 @@ fn file_state_handler(
     }
 }
 
-fn handle_load(open_file: &mut OpenFile, data: &[u8], path: PathBuf) -> bool {
+fn handle_load(open_file: &mut LoadedFile, data: &[u8], path: PathBuf) -> bool {
     let file_data = match serde_json::from_slice(data) {
         Ok(data) => data,
         Err(err) => {
@@ -172,7 +182,7 @@ fn handle_load(open_file: &mut OpenFile, data: &[u8], path: PathBuf) -> bool {
     true
 }
 
-fn get_write_data(open_file: &OpenFile) -> Option<Vec<u8>> {
+fn get_write_data(open_file: &LoadedFile) -> Option<Vec<u8>> {
     let mut serializer =
         Serializer::with_formatter(Vec::new(), PrettyFormatter::with_indent("\t".as_bytes()));
     match open_file.file.serialize(&mut serializer) {
