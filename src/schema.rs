@@ -48,9 +48,9 @@ pub struct MpsTransform {
 
 #[derive(Copy, Clone, Debug, Default, Serialize, Deserialize)]
 pub struct MpsVec3 {
-    pub x: u32,
-    pub y: u32,
-    pub z: u32,
+    pub x: f64,
+    pub y: f64,
+    pub z: f64,
 }
 
 #[derive(Copy, Clone, Debug, Default, Serialize, Deserialize)]
