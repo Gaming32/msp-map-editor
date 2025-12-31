@@ -2259,6 +2259,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "directories"
+version = "6.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "16f5094c54661b38d03bd7e50df373292118db60b585c08a411c6d840017fe7d"
+dependencies = [
+ "dirs-sys",
+]
+
+[[package]]
 name = "dirs"
 version = "6.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3552,7 +3561,9 @@ dependencies = [
  "bevy-panic-handler",
  "bevy_file_dialog",
  "bevy_mod_imgui",
+ "directories",
  "grid 1.0.0",
+ "imgui",
  "itertools 0.14.0",
  "monostate",
  "native-dialog",

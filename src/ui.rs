@@ -1,21 +1,34 @@
+use crate::docking::UiDocking;
 use crate::load_file::{LoadedFile, new_file, open_file, save_file, save_file_as};
 use crate::schema::MapFile;
+use crate::{Directories, ViewportTarget};
+use bevy::prelude::Image as BevyImage;
 use bevy::prelude::*;
+use bevy::render::render_resource::Extent3d;
 use bevy::window::{PrimaryWindow, WindowCloseRequested};
 use bevy_file_dialog::prelude::*;
 use bevy_mod_imgui::prelude::*;
+use imgui::Image as ImguiImage;
 use std::mem;
 
 pub struct MapEditorUi;
 
 impl Plugin for MapEditorUi {
     fn build(&self, app: &mut App) {
+        app.world().resource::<Directories>();
+
+        let mut imgui_plugin = ImguiPlugin::default();
+        if let Some(dirs) = app.world().get_resource::<Directories>() {
+            imgui_plugin.ini_filename = Some(dirs.data.join("imgui.ini"));
+        }
+
         app.insert_resource(UiState {
-            // close_test_future: None,
+            ui_setup: false,
+            viewport_texture: None,
             pending_close_state: PendingCloseState::None,
         })
         .add_plugins((
-            ImguiPlugin::default(),
+            imgui_plugin,
             FileDialogPlugin::new()
                 .with_load_file::<MapFile>()
                 .with_save_file::<MapFile>(),
@@ -25,13 +38,14 @@ impl Plugin for MapEditorUi {
                 io.config_docking_always_tab_bar = true;
             });
         })
-        .add_systems(Update, (imgui, keyboard_handler, close_handler));
+        .add_systems(Update, (draw_imgui, keyboard_handler, close_handler));
     }
 }
 
 #[derive(Resource)]
 pub struct UiState {
-    // close_test_future: Option<Task<bool>>,
+    ui_setup: bool,
+    viewport_texture: Option<TextureId>,
     pending_close_state: PendingCloseState,
 }
 
@@ -55,14 +69,39 @@ impl UiState {
     }
 }
 
-fn imgui(
+fn draw_imgui(
     mut context: NonSendMut<ImguiContext>,
     mut state: ResMut<UiState>,
     current_open_file: Res<LoadedFile>,
     mut commands: Commands,
     window_query: Query<Entity, With<PrimaryWindow>>,
+    viewport_target: Option<Res<ViewportTarget>>,
+    mut images: ResMut<Assets<BevyImage>>,
 ) {
+    if state.viewport_texture.is_none()
+        && let Some(target) = &viewport_target
+    {
+        state.viewport_texture = Some(context.register_bevy_texture(target.0.clone()));
+    }
+
     let ui = context.ui();
+
+    if !state.ui_setup {
+        ui.dockspace_over_viewport().split(
+            Direction::Left,
+            0.8,
+            |left| {
+                left.dock_window("Viewport");
+            },
+            |right| {
+                right.dock_window("Map settings");
+                right.dock_window("Tile settings");
+            },
+        );
+        state.ui_setup = true;
+    } else {
+        ui.dockspace_over_main_viewport();
+    }
 
     ui.main_menu_bar(|| {
         ui.menu("File", || {
@@ -96,6 +135,39 @@ fn imgui(
         });
     });
 
+    ui.window("Viewport").collapsible(true).build(|| {
+        if let Some(texture) = state.viewport_texture {
+            let dest_size = ui.content_region_avail();
+            if dest_size[0] < 1.0 || dest_size[1] < 1.0 {
+                return;
+            }
+            if let Some(target) = viewport_target {
+                let target_size = UVec2::new(dest_size[0] as u32, dest_size[1] as u32);
+                if images
+                    .get(&target.0)
+                    .is_some_and(|i| i.size() != target_size)
+                {
+                    let real_image = images.get_mut(&target.0).unwrap();
+                    real_image.resize_in_place(Extent3d {
+                        width: target_size.x,
+                        height: target_size.y,
+                        depth_or_array_layers: 1,
+                    });
+                    state.viewport_texture = None;
+                }
+            }
+            ImguiImage::new(texture, dest_size).build(ui);
+        }
+    });
+
+    ui.window("Map settings").collapsible(true).build(|| {
+        ui.text("MAP EDITOR");
+    });
+
+    ui.window("Tile settings").collapsible(true).build(|| {
+        ui.text("No tile selected");
+    });
+
     match mem::take(&mut state.pending_close_state) {
         PendingCloseState::PendingUi(action) if current_open_file.dirty => {
             ui.open_popup("Are you sure?");
@@ -105,7 +177,6 @@ fn imgui(
             state.pending_close_state = other;
         }
     }
-
     ui.modal_popup("Are you sure?", || {
         ui.text("The current file has not been saved. Are you sure?");
 
@@ -184,7 +255,6 @@ fn close_handler(
     mut commands: Commands,
     mut close_requested: MessageReader<WindowCloseRequested>,
     mut ui_state: ResMut<UiState>,
-    // primary_window: Query<Entity, With<PrimaryWindow>>,
     mut open_file: ResMut<LoadedFile>,
 ) {
     for event in close_requested.read() {
@@ -192,22 +262,6 @@ fn close_handler(
         ui_state.request_close_file(move |commands, _| {
             commands.entity(window).despawn();
         });
-
-        // let window = event.window;
-        // if open_file.dirty {
-        //     ui_state.close_test_future = Some(AsyncComputeTaskPool::get().spawn(async move {
-        //         native_dialog::MessageDialogBuilder::default()
-        //             .set_title(TITLE)
-        //             .set_text("You have unsaved changes. Are you sure you'd like to exit?")
-        //             .set_level(MessageLevel::Warning)
-        //             .confirm()
-        //             .spawn()
-        //             .await
-        //             .unwrap_or_default()
-        //     }));
-        // } else {
-        //     commands.entity(window).despawn();
-        // }
     }
 
     match mem::take(&mut ui_state.pending_close_state) {
@@ -223,13 +277,4 @@ fn close_handler(
             ui_state.pending_close_state = other;
         }
     }
-
-    // if let Some(closing) = &mut ui_state.close_test_future
-    //     && let Some(close) = check_ready(closing)
-    // {
-    //     if close && let Ok(window) = primary_window.single_inner() {
-    //         commands.entity(window).despawn();
-    //     }
-    //     ui_state.close_test_future = None;
-    // }
 }
