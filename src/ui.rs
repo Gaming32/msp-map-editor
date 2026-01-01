@@ -83,11 +83,12 @@ fn draw_imgui(
     current_open_file: Res<LoadedFile>,
     mut commands: Commands,
     window_query: Query<Entity, With<PrimaryWindow>>,
-    viewport_target: Res<ViewportTarget>,
+    mut viewport_target: ResMut<ViewportTarget>,
     mut images: ResMut<Assets<BevyImage>>,
 ) {
     if state.viewport_texture.is_none() {
-        state.viewport_texture = Some(context.register_bevy_texture(viewport_target.0.clone()));
+        state.viewport_texture =
+            Some(context.register_bevy_texture(viewport_target.texture.clone()));
     }
 
     state.free_timer.tick(time.delta());
@@ -157,10 +158,10 @@ fn draw_imgui(
             }
             let target_size = UVec2::new(dest_size[0] as u32, dest_size[1] as u32);
             if images
-                .get(&viewport_target.0)
+                .get(&viewport_target.texture)
                 .is_some_and(|i| i.size() != target_size)
             {
-                let real_image = images.get_mut(&viewport_target.0).unwrap();
+                let real_image = images.get_mut(&viewport_target.texture).unwrap();
                 real_image.resize_in_place(Extent3d {
                     width: target_size.x,
                     height: target_size.y,
@@ -169,6 +170,8 @@ fn draw_imgui(
                 state.textures_to_free.push(texture);
                 state.viewport_texture = None;
             }
+            viewport_target.upper_left = ui.cursor_screen_pos().into();
+            viewport_target.size = dest_size.into();
             ImguiImage::new(texture, dest_size).build(ui);
         }
     });

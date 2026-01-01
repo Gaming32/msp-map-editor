@@ -1054,6 +1054,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "bevy_map_camera"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dffc2384b5e1607302ccefca68b391d5940d432e8539ca0ea649925e449f94c6"
+dependencies = [
+ "approx",
+ "bevy_app",
+ "bevy_camera",
+ "bevy_ecs",
+ "bevy_input",
+ "bevy_log",
+ "bevy_math",
+ "bevy_picking",
+ "bevy_platform",
+ "bevy_reflect",
+ "bevy_transform",
+ "bevy_window",
+ "serde",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "bevy_math"
 version = "0.17.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3560,6 +3582,7 @@ dependencies = [
  "bevy",
  "bevy-panic-handler",
  "bevy_file_dialog",
+ "bevy_map_camera",
  "bevy_mod_imgui",
  "directories",
  "grid 1.0.0",

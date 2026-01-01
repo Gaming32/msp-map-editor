@@ -8,6 +8,7 @@ mod viewport;
 use crate::load_file::LoadFilePlugin;
 use crate::ui::MapEditorUi;
 use crate::viewport::ViewportPlugin;
+use bevy::log::LogPlugin;
 use bevy::prelude::*;
 use bevy_panic_handler::PanicHandler;
 use directories::ProjectDirs;
@@ -59,14 +60,20 @@ impl Plugin for MapEditor {
 fn main() {
     App::new()
         .add_plugins((
-            DefaultPlugins.set(WindowPlugin {
-                primary_window: Some(Window {
-                    title: TITLE.to_string(),
+            DefaultPlugins
+                .set(WindowPlugin {
+                    primary_window: Some(Window {
+                        title: TITLE.to_string(),
+                        ..Default::default()
+                    }),
+                    close_when_requested: false,
+                    ..Default::default()
+                })
+                .set(LogPlugin {
+                    filter: "info,wgpu=error,naga=warn,bevy_map_camera::controller::mouse=error"
+                        .to_string(),
                     ..Default::default()
                 }),
-                close_when_requested: false,
-                ..Default::default()
-            }),
             PanicHandler::new()
                 .set_title_func(|_| TITLE.to_string())
                 .build(),
