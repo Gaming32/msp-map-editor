@@ -8,7 +8,7 @@ mod ui;
 mod utils;
 mod viewport;
 
-use crate::assets::{EmbeddedAssetsPlugin, gold_pipe, key_gate, silver_star, star};
+use crate::assets::EmbeddedAssetsPlugin;
 use crate::load_file::LoadFilePlugin;
 use crate::ui::MapEditorUi;
 use crate::viewport::ViewportPlugin;
@@ -16,7 +16,6 @@ use bevy::log::LogPlugin;
 use bevy::prelude::*;
 use bevy_panic_handler::PanicHandler;
 use directories::ProjectDirs;
-use std::f32::consts::PI;
 use std::fs;
 use std::path::PathBuf;
 
@@ -52,13 +51,6 @@ impl Plugin for MapEditor {
             ViewportPlugin,
             MapEditorUi,
         ));
-        app.add_systems(Startup, |mut commands: Commands, world: &World| {
-            commands.spawn(star(world, Vec3::new(-2.0, 0.5, 0.0)));
-            commands.spawn(key_gate(world, Vec3::new(-1.0, 0.5, 0.0), PI / 2.0));
-            commands.spawn(gold_pipe(world, Vec3::new(0.0, 0.5, 0.0)));
-            commands.spawn(key_gate(world, Vec3::new(1.0, 0.5, 0.0), 0.0));
-            commands.spawn(silver_star(world, Vec3::new(2.0, 0.5, 0.0)));
-        });
     }
 }
 
