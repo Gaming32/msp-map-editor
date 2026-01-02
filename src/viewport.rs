@@ -4,11 +4,15 @@ use bevy::input::ButtonState;
 use bevy::input::mouse::MouseWheel;
 use bevy::picking::PickingSystems;
 use bevy::picking::pointer::{Location, PointerAction, PointerId, PointerInput};
+use bevy::prelude::Rect;
 use bevy::prelude::*;
 use bevy::render::render_resource::TextureFormat;
 use bevy::window::WindowEvent;
 use bevy_map_camera::controller::CameraControllerButtons;
 use bevy_map_camera::{CameraControllerSettings, LookTransform, MapCamera, MapCameraPlugin};
+use std::f32::consts::PI;
+use transform_gizmo_bevy::GizmoHotkeys;
+use transform_gizmo_bevy::prelude::*;
 
 #[derive(Resource)]
 pub struct ViewportTarget {
@@ -34,13 +38,13 @@ impl Plugin for ViewportPlugin {
             upper_left: Vec2::default(),
             size: Vec2::new(1.0, 1.0),
         });
-        app.add_plugins(MapCameraPlugin);
+        app.add_plugins((MapCameraPlugin, TransformGizmoPlugin));
         app.add_systems(
             First,
             custom_mouse_pick_events.in_set(PickingSystems::Input),
         );
         app.add_systems(Startup, setup_viewport);
-        app.add_systems(Update, update_lights);
+        app.add_systems(Update, (update_gizmos, update_lights));
     }
 }
 
@@ -56,12 +60,22 @@ fn setup_viewport(mut commands: Commands, viewport_target: Res<ViewportTarget>) 
         },
         ..Default::default()
     });
+    commands.insert_resource(GizmoOptions {
+        gizmo_modes: GizmoMode::all_translate(),
+        hotkeys: Some(GizmoHotkeys::default()),
+        snapping: true,
+        snap_angle: PI / 4.0,
+        snap_distance: 1.0,
+        ..Default::default()
+    });
+
     commands.spawn((
         Camera {
             target: viewport_target.texture.clone().into(),
             ..Default::default()
         },
         MapCamera,
+        GizmoCamera,
         LookTransform::new(
             Vec3 {
                 x: 1.0,
@@ -79,6 +93,13 @@ fn setup_viewport(mut commands: Commands, viewport_target: Res<ViewportTarget>) 
             shadows_enabled: true,
             ..Default::default()
         },
+    ));
+}
+
+fn update_gizmos(mut options: ResMut<GizmoOptions>, viewport: Res<ViewportTarget>) {
+    options.viewport_rect = Some(Rect::from_corners(
+        viewport.upper_left,
+        viewport.upper_left + viewport.size,
     ));
 }
 
