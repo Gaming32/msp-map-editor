@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod assets;
 mod docking;
 mod load_file;
 mod schema;
@@ -7,6 +8,9 @@ mod ui;
 mod utils;
 mod viewport;
 
+use crate::assets::{
+    EmbeddedAssetsPlugin, spawn_gold_pipe, spawn_key_gate, spawn_silver_star, spawn_star,
+};
 use crate::load_file::LoadFilePlugin;
 use crate::ui::MapEditorUi;
 use crate::viewport::ViewportPlugin;
@@ -14,6 +18,7 @@ use bevy::log::LogPlugin;
 use bevy::prelude::*;
 use bevy_panic_handler::PanicHandler;
 use directories::ProjectDirs;
+use std::f32::consts::PI;
 use std::fs;
 use std::path::PathBuf;
 
@@ -43,19 +48,19 @@ impl Plugin for MapEditor {
             }
         }
 
-        app.add_plugins((LoadFilePlugin, ViewportPlugin, MapEditorUi));
-        app.add_systems(
-            Startup,
-            |mut commands: Commands,
-             mut meshes: ResMut<Assets<Mesh>>,
-             mut materials: ResMut<Assets<StandardMaterial>>| {
-                commands.spawn((
-                    Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
-                    MeshMaterial3d(materials.add(Color::srgb_u8(124, 144, 255))),
-                    Transform::from_xyz(0.0, 0.5, 0.0),
-                ));
-            },
-        );
+        app.add_plugins((
+            EmbeddedAssetsPlugin,
+            LoadFilePlugin,
+            ViewportPlugin,
+            MapEditorUi,
+        ));
+        app.add_systems(Startup, |mut commands: Commands, world: &World| {
+            spawn_star(&mut commands, world, Vec3::new(-2.0, 0.5, 0.0));
+            spawn_key_gate(&mut commands, world, Vec3::new(-1.0, 0.5, 0.0), PI / 2.0);
+            spawn_gold_pipe(&mut commands, world, Vec3::new(0.0, 0.5, 0.0));
+            spawn_key_gate(&mut commands, world, Vec3::new(1.0, 0.5, 0.0), 0.0);
+            spawn_silver_star(&mut commands, world, Vec3::new(2.0, 0.5, 0.0));
+        });
     }
 }
 

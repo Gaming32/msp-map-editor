@@ -4,6 +4,7 @@ use monostate::{MustBe, MustBeBool};
 use serde::{Deserialize, Serialize};
 use serde_with::OneOrMany;
 use serde_with::serde_as;
+use std::path::PathBuf;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -12,9 +13,8 @@ pub struct MapFile {
     pub shop_warp_tiles: Vec<MpsVec2>,
     pub tutorial_star: MpsTransform,
     pub tutorial_shop: MpsTransform,
-    pub skybox: CubeMap,
-    pub dark_skybox: CubeMap,
-    pub atlas: String,
+    #[serde(flatten)]
+    pub textures: Textures<PathBuf>,
     #[serde(with = "grid_as_vec_vec")]
     pub data: Grid<TileData>,
 }
@@ -26,9 +26,7 @@ impl Default for MapFile {
             shop_warp_tiles: Default::default(),
             tutorial_star: Default::default(),
             tutorial_shop: Default::default(),
-            skybox: Default::default(),
-            dark_skybox: Default::default(),
-            atlas: Default::default(),
+            textures: Default::default(),
             data: grid![[TileData::default()]],
         }
     }
@@ -60,7 +58,14 @@ pub struct MpsEuler {
     pub z: f64,
 }
 
-pub type CubeMap = [String; 6];
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct Textures<T> {
+    pub skybox: CubeMap<T>,
+    pub dark_skybox: CubeMap<T>,
+    pub atlas: T,
+}
+
+pub type CubeMap<T> = [T; 6];
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

@@ -1,3 +1,4 @@
+use crate::load_file::LoadedFile;
 use bevy::camera::NormalizedRenderTarget;
 use bevy::input::ButtonState;
 use bevy::input::mouse::MouseWheel;
@@ -39,10 +40,22 @@ impl Plugin for ViewportPlugin {
             custom_mouse_pick_events.in_set(PickingSystems::Input),
         );
         app.add_systems(Startup, setup_viewport);
+        app.add_systems(Update, update_lights);
     }
 }
 
 fn setup_viewport(mut commands: Commands, viewport_target: Res<ViewportTarget>) {
+    commands.insert_resource(CameraControllerSettings {
+        touch_enabled: false, // XXX: touch pick events are not implemented, so touch wouldn't work anyway. Maybe I should fix this.
+        minimum_pitch: 0.0,
+        buttons: CameraControllerButtons {
+            pan: vec![MouseButton::Middle.into(), KeyCode::ShiftLeft.into()],
+            pan_alt: None,
+            rotate: vec![MouseButton::Middle.into()],
+            rotate_alt: None,
+        },
+        ..Default::default()
+    });
     commands.spawn((
         Camera {
             target: viewport_target.texture.clone().into(),
@@ -59,17 +72,33 @@ fn setup_viewport(mut commands: Commands, viewport_target: Res<ViewportTarget>) 
             Vec3::Y,
         ),
     ));
-    commands.insert_resource(CameraControllerSettings {
-        touch_enabled: false, // XXX: touch pick events are not implemented, so touch wouldn't work anyway. Maybe I should fix this.
-        minimum_pitch: 0.0,
-        buttons: CameraControllerButtons {
-            pan: vec![MouseButton::Middle.into(), KeyCode::ShiftLeft.into()],
-            pan_alt: None,
-            rotate: vec![MouseButton::Middle.into()],
-            rotate_alt: None,
+
+    commands.spawn((
+        LookTransform::default(),
+        DirectionalLight {
+            shadows_enabled: true,
+            ..Default::default()
         },
-        ..Default::default()
-    });
+    ));
+}
+
+fn update_lights(
+    mut light: Query<&mut LookTransform, With<DirectionalLight>>,
+    loaded_file: Res<LoadedFile>,
+) {
+    if let Ok(mut light) = light.single_mut() {
+        let map_data = &loaded_file.file.data;
+        light.eye = Vec3::new(
+            map_data.cols() as f32 / 2.0,
+            10.0,
+            map_data.rows() as f32 / 2.0 + 5.0,
+        );
+        light.target = Vec3::new(
+            map_data.cols() as f32 / 2.0,
+            0.0,
+            map_data.rows() as f32 / 2.0,
+        );
+    }
 }
 
 fn custom_mouse_pick_events(

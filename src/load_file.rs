@@ -1,5 +1,5 @@
 use crate::TITLE;
-use crate::schema::MapFile;
+use crate::schema::{MapFile, Textures};
 use crate::ui::UiState;
 use bevy::prelude::*;
 use bevy::tasks::AsyncComputeTaskPool;
@@ -19,6 +19,7 @@ pub struct LoadedFile {
     pub path: Option<PathBuf>,
     pub dirty: bool,
     pub file: MapFile,
+    pub loaded_textures: Option<Textures<Option<LoadedTexture>>>, // TODO: Finish implementing
 }
 
 impl LoadedFile {
@@ -26,6 +27,11 @@ impl LoadedFile {
         self.dirty = true;
         commands.write_message(UpdateHeader);
     }
+}
+
+pub struct LoadedTexture {
+    pub path: PathBuf,
+    pub image: Handle<Image>,
 }
 
 pub struct LoadFilePlugin;
