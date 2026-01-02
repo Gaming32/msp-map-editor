@@ -23,58 +23,41 @@ impl Plugin for EmbeddedAssetsPlugin {
     }
 }
 
-pub fn spawn_gold_pipe<'a>(
-    commands: &'a mut Commands,
-    world: &World,
-    position: Vec3,
-) -> EntityCommands<'a> {
-    commands.spawn((
+pub fn gold_pipe(world: &World, position: Vec3) -> impl Bundle {
+    (
         SceneRoot(world.load_asset(asset_path!("objects/gold_pipe.glb#Scene0"))),
         MaterialChangeType::GoldPipe,
         NotShadowCaster,
         Transform::from_translation(position)
             .with_scale(Vec3::splat(0.375))
             .with_rotation(Quat::from_rotation_y(PI / 2.0)),
-    ))
+    )
 }
 
-pub fn spawn_key_gate<'a>(
-    commands: &'a mut Commands,
-    world: &World,
-    position: Vec3,
-    rotation: f32,
-) -> EntityCommands<'a> {
-    commands.spawn((
+pub fn key_gate(world: &World, position: Vec3, rotation: f32) -> impl Bundle {
+    (
         SceneRoot(world.load_asset(asset_path!("objects/key_gate.glb#Scene0"))),
         MaterialChangeType::KeyGate,
         Transform::from_translation(position)
             .with_scale(Vec3::splat(10.0 / 16.0))
             .with_rotation(Quat::from_rotation_y(rotation)),
-    ))
+    )
 }
 
-pub fn spawn_star<'a>(
-    commands: &'a mut Commands,
-    world: &World,
-    position: Vec3,
-) -> EntityCommands<'a> {
-    commands.spawn((
+pub fn star(world: &World, position: Vec3) -> impl Bundle {
+    (
         SceneRoot(world.load_asset(asset_path!("objects/star.glb#Scene0"))),
         MaterialChangeType::Star,
         Transform::from_translation(position).with_scale(Vec3::splat(0.15)),
-    ))
+    )
 }
 
-pub fn spawn_silver_star<'a>(
-    commands: &'a mut Commands,
-    world: &World,
-    position: Vec3,
-) -> EntityCommands<'a> {
-    commands.spawn((
+pub fn silver_star(world: &World, position: Vec3) -> impl Bundle {
+    (
         SceneRoot(world.load_asset(asset_path!("objects/star.glb#Scene0"))),
         MaterialChangeType::SilverStar,
         Transform::from_translation(position).with_scale(Vec3::splat(0.1)),
-    ))
+    )
 }
 
 #[derive(Component, Copy, Clone, Debug)]

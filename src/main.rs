@@ -8,9 +8,7 @@ mod ui;
 mod utils;
 mod viewport;
 
-use crate::assets::{
-    EmbeddedAssetsPlugin, spawn_gold_pipe, spawn_key_gate, spawn_silver_star, spawn_star,
-};
+use crate::assets::{EmbeddedAssetsPlugin, gold_pipe, key_gate, silver_star, star};
 use crate::load_file::LoadFilePlugin;
 use crate::ui::MapEditorUi;
 use crate::viewport::ViewportPlugin;
@@ -55,11 +53,11 @@ impl Plugin for MapEditor {
             MapEditorUi,
         ));
         app.add_systems(Startup, |mut commands: Commands, world: &World| {
-            spawn_star(&mut commands, world, Vec3::new(-2.0, 0.5, 0.0));
-            spawn_key_gate(&mut commands, world, Vec3::new(-1.0, 0.5, 0.0), PI / 2.0);
-            spawn_gold_pipe(&mut commands, world, Vec3::new(0.0, 0.5, 0.0));
-            spawn_key_gate(&mut commands, world, Vec3::new(1.0, 0.5, 0.0), 0.0);
-            spawn_silver_star(&mut commands, world, Vec3::new(2.0, 0.5, 0.0));
+            commands.spawn(star(world, Vec3::new(-2.0, 0.5, 0.0)));
+            commands.spawn(key_gate(world, Vec3::new(-1.0, 0.5, 0.0), PI / 2.0));
+            commands.spawn(gold_pipe(world, Vec3::new(0.0, 0.5, 0.0)));
+            commands.spawn(key_gate(world, Vec3::new(1.0, 0.5, 0.0), 0.0));
+            commands.spawn(silver_star(world, Vec3::new(2.0, 0.5, 0.0)));
         });
     }
 }
