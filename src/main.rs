@@ -4,6 +4,7 @@ mod assets;
 mod docking;
 mod load_file;
 mod schema;
+mod sync;
 mod ui;
 mod utils;
 mod viewport;

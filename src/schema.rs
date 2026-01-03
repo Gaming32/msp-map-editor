@@ -5,7 +5,6 @@ use monostate::{MustBe, MustBeBool};
 use serde::{Deserialize, Serialize};
 use serde_with::OneOrMany;
 use serde_with::serde_as;
-use std::path::PathBuf;
 use strum::IntoStaticStr;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -19,7 +18,7 @@ pub struct MapFile {
     pub tutorial_star: MpsTransform,
     pub tutorial_shop: MpsTransform,
     #[serde(flatten)]
-    pub textures: Textures<PathBuf>,
+    pub textures: Textures<String>,
     pub shops: EnumMap<ShopNumber, Vec<ShopItem>>,
     #[serde(with = "grid_as_vec_vec")]
     pub data: Grid<TileData>,
@@ -44,25 +43,18 @@ impl Default for MapFile {
 
 #[derive(Copy, Clone, Debug, Default, Serialize, Deserialize)]
 pub struct MpsVec2 {
-    pub x: u32,
-    pub y: u32,
+    pub x: i32,
+    pub y: i32,
 }
 
 #[derive(Copy, Clone, Debug, Default, Serialize, Deserialize)]
 pub struct MpsTransform {
     pub pos: MpsVec3,
-    pub rot: MpsEuler,
+    pub rot: MpsVec3,
 }
 
 #[derive(Copy, Clone, Debug, Default, Serialize, Deserialize)]
 pub struct MpsVec3 {
-    pub x: f64,
-    pub y: f64,
-    pub z: f64,
-}
-
-#[derive(Copy, Clone, Debug, Default, Serialize, Deserialize)]
-pub struct MpsEuler {
     pub x: f64,
     pub y: f64,
     pub z: f64,
@@ -139,6 +131,15 @@ impl Default for TileHeight {
         Self::Flat {
             ramp: MustBeBool,
             height: 0.0,
+        }
+    }
+}
+
+impl TileHeight {
+    pub fn center_height(&self) -> f64 {
+        match self {
+            Self::Flat { height, .. } => *height,
+            Self::Ramp { height, .. } => (height.pos + height.neg) / 2.0,
         }
     }
 }

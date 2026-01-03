@@ -1,7 +1,7 @@
 use bevy::asset::embedded_asset;
-use bevy::light::NotShadowCaster;
+use bevy::image::{ImageLoaderSettings, ImageSampler};
+use bevy::light::{NotShadowCaster, NotShadowReceiver};
 use bevy::prelude::*;
-use bevy::scene::SceneInstanceReady;
 use std::f32::consts::PI;
 
 macro_rules! asset_path {
@@ -14,19 +14,20 @@ pub struct EmbeddedAssetsPlugin;
 
 impl Plugin for EmbeddedAssetsPlugin {
     fn build(&self, app: &mut App) {
-        // app.add_plugins(FbxPlugin);
-        app.add_observer(change_materials);
-
         embedded_asset!(app, "assets/objects/gold_pipe.glb");
         embedded_asset!(app, "assets/objects/key_gate.glb");
         embedded_asset!(app, "assets/objects/star.glb");
+
+        embedded_asset!(app, "assets/player.png");
     }
 }
 
-pub fn gold_pipe(world: &World, position: Vec3) -> impl Bundle {
+#[derive(Component)]
+pub struct PlayerMarker;
+
+pub fn gold_pipe(assets: &AssetServer, position: Vec3) -> impl Bundle {
     (
-        SceneRoot(world.load_asset(asset_path!("objects/gold_pipe.glb#Scene0"))),
-        MaterialChangeType::GoldPipe,
+        SceneRoot(assets.load(asset_path!("objects/gold_pipe.glb#Scene0"))),
         NotShadowCaster,
         Transform::from_translation(position)
             .with_scale(Vec3::splat(0.375))
@@ -34,94 +35,50 @@ pub fn gold_pipe(world: &World, position: Vec3) -> impl Bundle {
     )
 }
 
-pub fn key_gate(world: &World, position: Vec3, rotation: f32) -> impl Bundle {
+pub fn key_gate(assets: &AssetServer, position: Vec3, rotation: f32) -> impl Bundle {
     (
-        SceneRoot(world.load_asset(asset_path!("objects/key_gate.glb#Scene0"))),
-        MaterialChangeType::KeyGate,
+        SceneRoot(assets.load(asset_path!("objects/key_gate.glb#Scene0"))),
         Transform::from_translation(position)
             .with_scale(Vec3::splat(10.0 / 16.0))
             .with_rotation(Quat::from_rotation_y(rotation)),
     )
 }
 
-pub fn star(world: &World, position: Vec3) -> impl Bundle {
+pub fn silver_star(assets: &AssetServer, position: Vec3) -> impl Bundle {
     (
-        SceneRoot(world.load_asset(asset_path!("objects/star.glb#Scene0"))),
-        MaterialChangeType::Star,
-        Transform::from_translation(position).with_scale(Vec3::splat(0.15)),
-    )
-}
-
-pub fn silver_star(world: &World, position: Vec3) -> impl Bundle {
-    (
-        SceneRoot(world.load_asset(asset_path!("objects/star.glb#Scene0"))),
-        MaterialChangeType::SilverStar,
+        SceneRoot(assets.load(asset_path!("objects/star.glb#Scene0"))),
         Transform::from_translation(position).with_scale(Vec3::splat(0.1)),
     )
 }
 
-#[derive(Component, Copy, Clone, Debug)]
-enum MaterialChangeType {
-    GoldPipe,
-    KeyGate,
-    Star,
-    SilverStar,
+pub fn star(assets: &AssetServer, position: Vec3) -> impl Bundle {
+    (
+        SceneRoot(assets.load(asset_path!("objects/star.glb#Scene0"))),
+        Transform::from_translation(position).with_scale(Vec3::splat(0.15)),
+    )
 }
 
-fn change_materials(
-    scene_ready: On<SceneInstanceReady>,
-    mut commands: Commands,
-    children: Query<&Children>,
-    change_type: Query<&MaterialChangeType>,
-    mesh_materials: Query<&MeshMaterial3d<StandardMaterial>>,
-    mut asset_materials: ResMut<Assets<StandardMaterial>>,
-) {
-    let Ok(change_type) = change_type.get(scene_ready.entity) else {
-        return;
-    };
-    for descendant in children.iter_descendants(scene_ready.entity) {
-        let Ok(id) = mesh_materials.get(descendant) else {
-            continue;
-        };
-        let Some(material) = asset_materials.get(id.id()) else {
-            continue;
-        };
-
-        let new_material = match change_type {
-            MaterialChangeType::GoldPipe => StandardMaterial {
-                base_color_texture: material.base_color_texture.clone(),
-                perceptual_roughness: 1.0,
-                ..Default::default()
-            },
-            MaterialChangeType::KeyGate => StandardMaterial {
-                alpha_mode: AlphaMode::Opaque,
-                ..material.clone()
-            },
-            MaterialChangeType::Star | MaterialChangeType::SilverStar
-                if material.base_color_texture.is_some() =>
-            {
-                StandardMaterial {
-                    base_color_texture: material.base_color_texture.clone(),
-                    alpha_mode: AlphaMode::Blend,
-                    perceptual_roughness: 1.0,
-                    ..Default::default()
-                }
-            }
-            MaterialChangeType::Star => StandardMaterial {
-                base_color: Srgba::rgb_u8(0xFF, 0xFF, 0x00).into(),
-                perceptual_roughness: 0.075,
-                metallic: 0.8,
-                ..Default::default()
-            },
-            MaterialChangeType::SilverStar => StandardMaterial {
-                base_color: Srgba::rgb_u8(0xAA, 0xAA, 0xAA).into(),
-                perceptual_roughness: 0.075,
-                metallic: 0.8,
-                ..Default::default()
-            },
-        };
-        commands
-            .entity(descendant)
-            .insert(MeshMaterial3d(asset_materials.add(new_material)));
-    }
+pub fn player(assets: &AssetServer, position: Vec3) -> impl Bundle {
+    (
+        PlayerMarker,
+        Mesh3d(assets.add(Plane3d::new(Vec3::Z, Vec2::new(0.6, 0.75)).into())),
+        MeshMaterial3d(assets.add(StandardMaterial {
+            base_color_texture: Some(assets.load_with_settings(
+                asset_path!("player.png"),
+                |s: &mut _| {
+                    *s = ImageLoaderSettings {
+                        sampler: ImageSampler::nearest(),
+                        ..Default::default()
+                    };
+                },
+            )),
+            alpha_mode: AlphaMode::Mask(0.5),
+            perceptual_roughness: 1.0,
+            double_sided: true,
+            cull_mode: None,
+            ..Default::default()
+        })),
+        NotShadowReceiver,
+        Transform::from_translation(position),
+    )
 }

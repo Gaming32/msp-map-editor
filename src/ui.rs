@@ -1,7 +1,8 @@
 use crate::Directories;
 use crate::docking::UiDocking;
-use crate::load_file::{LoadedFile, new_file, open_file, save_file, save_file_as};
-use crate::schema::MapFile;
+use crate::load_file::{FileLoaded, LoadedFile, new_file, open_file, save_file, save_file_as};
+use crate::schema::{MapFile, MpsVec2};
+use crate::sync::MapSettingChanged;
 use crate::viewport::ViewportTarget;
 use bevy::prelude::Image as BevyImage;
 use bevy::prelude::*;
@@ -39,6 +40,8 @@ impl Plugin for MapEditorUi {
                 io.config_docking_always_tab_bar = true;
             });
         })
+        .add_observer(on_file_loaded)
+        .add_observer(on_map_setting_changed)
         .add_systems(Update, (draw_imgui, keyboard_handler, close_handler));
     }
 }
@@ -50,6 +53,7 @@ pub struct UiState {
     textures_to_free: Vec<TextureId>,
     free_timer: Timer,
     pending_close_state: PendingCloseState,
+    starting_tile: MpsVec2,
 }
 
 type BoxedCloseHandler = Box<dyn FnOnce(&mut Commands, &mut LoadedFile) + Send + Sync>;
@@ -69,6 +73,16 @@ impl UiState {
         action: impl FnOnce(&mut Commands, &mut LoadedFile) + Send + Sync + 'static,
     ) {
         self.pending_close_state = PendingCloseState::PendingUi(Box::new(action));
+    }
+}
+
+fn on_file_loaded(_: On<FileLoaded>, file: Res<LoadedFile>, mut state: ResMut<UiState>) {
+    state.starting_tile = file.file.starting_tile;
+}
+
+fn on_map_setting_changed(on: On<MapSettingChanged>, mut res: ResMut<UiState>) {
+    match on.event() {
+        MapSettingChanged::StartingPosition(pos) => res.starting_tile = *pos,
     }
 }
 
@@ -177,7 +191,12 @@ fn draw_imgui(
     });
 
     ui.window("Map settings").collapsible(true).build(|| {
-        ui.text("MAP EDITOR");
+        ui.text("Starting tile");
+        ui.same_line();
+        ui.button("Edit");
+        if ui.input_int2("", &mut state.starting_tile).build() {
+            commands.trigger(MapSettingChanged::StartingPosition(state.starting_tile));
+        }
     });
 
     ui.window("Tile settings").collapsible(true).build(|| {

@@ -1,4 +1,7 @@
-use crate::load_file::LoadedFile;
+use crate::assets::{PlayerMarker, player};
+use crate::load_file::{FileLoaded, LoadedFile};
+use crate::schema::MpsVec2;
+use crate::sync::MapSettingChanged;
 use bevy::camera::NormalizedRenderTarget;
 use bevy::input::ButtonState;
 use bevy::input::mouse::MouseWheel;
@@ -44,6 +47,8 @@ impl Plugin for ViewportPlugin {
             custom_mouse_pick_events.in_set(PickingSystems::Input),
         );
         app.add_systems(Startup, setup_viewport);
+        app.add_observer(on_file_load);
+        app.add_observer(on_map_setting_changed);
         app.add_systems(Update, (update_gizmos, update_lights));
     }
 }
@@ -76,15 +81,7 @@ fn setup_viewport(mut commands: Commands, viewport_target: Res<ViewportTarget>) 
         },
         MapCamera,
         GizmoCamera,
-        LookTransform::new(
-            Vec3 {
-                x: 1.0,
-                y: 10.0,
-                z: 10.0,
-            },
-            Vec3::ZERO,
-            Vec3::Y,
-        ),
+        LookTransform::default(),
     ));
 
     commands.spawn((
@@ -94,6 +91,52 @@ fn setup_viewport(mut commands: Commands, viewport_target: Res<ViewportTarget>) 
             ..Default::default()
         },
     ));
+}
+
+#[derive(Component)]
+struct ViewportObject;
+
+fn on_file_load(
+    _: On<FileLoaded>,
+    mut commands: Commands,
+    objects: Query<Entity, With<ViewportObject>>,
+    mut camera: Query<&mut LookTransform, With<Camera>>,
+    assets: Res<AssetServer>,
+    file: Res<LoadedFile>,
+) {
+    for existing in objects.iter() {
+        commands.entity(existing).despawn();
+    }
+
+    let player_pos = get_player_pos(&file, file.file.starting_tile);
+    commands.spawn((player(&assets, player_pos), ViewportObject));
+    for mut camera in camera.iter_mut() {
+        camera.eye = player_pos + Vec3::new(0.0, 4.0, 8.0);
+        camera.target = player_pos;
+    }
+}
+
+fn on_map_setting_changed(
+    on: On<MapSettingChanged>,
+    file: Res<LoadedFile>,
+    mut player: Query<&mut Transform, With<PlayerMarker>>,
+) {
+    match on.event() {
+        MapSettingChanged::StartingPosition(pos) => {
+            for mut player in player.iter_mut() {
+                player.translation = get_player_pos(&file, *pos);
+            }
+        }
+    }
+}
+
+fn get_player_pos(file: &LoadedFile, pos: MpsVec2) -> Vec3 {
+    let tile_y = file
+        .file
+        .data
+        .get(pos.x, pos.y)
+        .map_or(0.0, |tile| tile.height.center_height());
+    Vec3::new(pos.x as f32, tile_y as f32 + 0.375, pos.y as f32)
 }
 
 fn update_gizmos(mut options: ResMut<GizmoOptions>, viewport: Res<ViewportTarget>) {

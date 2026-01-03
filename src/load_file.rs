@@ -1,5 +1,6 @@
 use crate::TITLE;
 use crate::schema::{MapFile, Textures};
+use crate::sync::MapSettingChanged;
 use crate::ui::UiState;
 use bevy::prelude::*;
 use bevy::tasks::AsyncComputeTaskPool;
@@ -24,8 +25,10 @@ pub struct LoadedFile {
 
 impl LoadedFile {
     pub fn mark_dirty(&mut self, commands: &mut Commands) {
-        self.dirty = true;
-        commands.write_message(UpdateHeader);
+        if !self.dirty {
+            self.dirty = true;
+            commands.write_message(UpdateHeader);
+        }
     }
 }
 
@@ -39,22 +42,22 @@ pub struct LoadFilePlugin;
 impl Plugin for LoadFilePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<LoadedFile>()
-            .add_message::<FileLoaded>()
             .add_message::<FileSaved>()
             .add_message::<UpdateHeader>()
-            .add_systems(Startup, initial_open_file)
+            .add_observer(on_map_setting_changed)
+            .add_systems(PostStartup, initial_open_file)
             .add_systems(Update, file_state_handler);
     }
 }
 
-#[derive(Message, Default)]
+#[derive(Event, Default)]
 pub struct FileLoaded;
 
 pub fn new_file(ui_state: &mut UiState) {
     ui_state.request_close_file(|commands, open_file| {
         *open_file = LoadedFile::default();
         commands.write_message(UpdateHeader);
-        commands.write_message(FileLoaded);
+        commands.trigger(FileLoaded);
     });
 }
 
@@ -100,9 +103,20 @@ struct FileSaved {
 #[derive(Message, Default)]
 struct UpdateHeader;
 
+fn on_map_setting_changed(
+    on: On<MapSettingChanged>,
+    mut open_file: ResMut<LoadedFile>,
+    mut commands: Commands,
+) {
+    match on.event() {
+        MapSettingChanged::StartingPosition(pos) => open_file.file.starting_tile = *pos,
+    }
+    open_file.mark_dirty(&mut commands);
+}
+
 fn initial_open_file(
     mut open_file: ResMut<LoadedFile>,
-    mut update_header_message: MessageWriter<UpdateHeader>,
+    mut commands: Commands,
     mut ui_state: ResMut<UiState>,
 ) {
     if let Some(path) = env::args_os().nth(1) {
@@ -115,7 +129,8 @@ fn initial_open_file(
             }
         };
         if handle_load(&mut open_file, &data, path) {
-            update_header_message.write_default();
+            commands.write_message(UpdateHeader);
+            commands.trigger(FileLoaded);
         }
     } else {
         new_file(&mut ui_state);
@@ -127,7 +142,7 @@ fn file_state_handler(
     mut saved_reader: MessageReader<FileSaved>,
     mut saved_as_reader: MessageReader<DialogFileSaved<MapFile>>,
     mut update_header_reader: MessageReader<UpdateHeader>,
-    mut loaded_writer: MessageWriter<FileLoaded>,
+    mut commands: Commands,
     mut open_file: ResMut<LoadedFile>,
     mut window_query: Query<&mut Window, With<PrimaryWindow>>,
 ) {
@@ -141,7 +156,7 @@ fn file_state_handler(
     for loaded in loaded_reader.read() {
         if handle_load(&mut open_file, &loaded.contents, loaded.path.clone()) {
             update_header = true;
-            loaded_writer.write_default();
+            commands.trigger(FileLoaded);
         }
     }
 
