@@ -26,3 +26,6 @@ transform-gizmo-bevy = { git = "https://github.com/pindash-io/transform-gizmo", 
 
 [profile.dev.package."*"]
 opt-level = 3
+
+[lints.clippy]
+type_complexity = "allow"

@@ -1,8 +1,10 @@
 use crate::assets::{PlayerMarker, player};
 use crate::load_file::{FileLoaded, LoadedFile};
 use crate::schema::MpsVec2;
-use crate::sync::MapSettingChanged;
+use crate::shortcut_pressed;
+use crate::sync::{MapSettingChanged, SelectForEditing};
 use bevy::camera::NormalizedRenderTarget;
+use bevy::ecs::query::QueryFilter;
 use bevy::input::ButtonState;
 use bevy::input::mouse::MouseWheel;
 use bevy::picking::PickingSystems;
@@ -40,16 +42,25 @@ impl Plugin for ViewportPlugin {
             texture: render_texture,
             upper_left: Vec2::default(),
             size: Vec2::new(1.0, 1.0),
-        });
-        app.add_plugins((MapCameraPlugin, TransformGizmoPlugin));
-        app.add_systems(
+        })
+        .add_plugins((MapCameraPlugin, TransformGizmoPlugin))
+        .add_systems(
             First,
             custom_mouse_pick_events.in_set(PickingSystems::Input),
+        )
+        .add_systems(Startup, setup_viewport)
+        .add_observer(on_file_load)
+        .add_observer(on_map_setting_changed)
+        .add_observer(on_select_for_editing)
+        .add_systems(
+            Update,
+            (
+                keyboard_handler,
+                update_gizmos,
+                sync_from_gizmos,
+                update_lights,
+            ),
         );
-        app.add_systems(Startup, setup_viewport);
-        app.add_observer(on_file_load);
-        app.add_observer(on_map_setting_changed);
-        app.add_systems(Update, (update_gizmos, update_lights));
     }
 }
 
@@ -66,9 +77,6 @@ fn setup_viewport(mut commands: Commands, viewport_target: Res<ViewportTarget>) 
         ..Default::default()
     });
     commands.insert_resource(GizmoOptions {
-        gizmo_modes: GizmoMode::all_translate(),
-        hotkeys: Some(GizmoHotkeys::default()),
-        snapping: true,
         snap_angle: PI / 4.0,
         snap_distance: 1.0,
         ..Default::default()
@@ -94,7 +102,10 @@ fn setup_viewport(mut commands: Commands, viewport_target: Res<ViewportTarget>) 
 }
 
 #[derive(Component)]
-struct ViewportObject;
+struct ViewportObject {
+    old_pos: Vec3,
+    old_rot: Option<Quat>,
+}
 
 fn on_file_load(
     _: On<FileLoaded>,
@@ -109,7 +120,13 @@ fn on_file_load(
     }
 
     let player_pos = get_player_pos(&file, file.file.starting_tile);
-    commands.spawn((player(&assets, player_pos), ViewportObject));
+    commands.spawn((
+        player(&assets, player_pos),
+        ViewportObject {
+            old_pos: player_pos,
+            old_rot: None,
+        },
+    ));
     for mut camera in camera.iter_mut() {
         camera.eye = player_pos + Vec3::new(0.0, 4.0, 8.0);
         camera.target = player_pos;
@@ -119,12 +136,40 @@ fn on_file_load(
 fn on_map_setting_changed(
     on: On<MapSettingChanged>,
     file: Res<LoadedFile>,
-    mut player: Query<&mut Transform, With<PlayerMarker>>,
+    mut player: Query<(&mut Transform, &mut ViewportObject), With<PlayerMarker>>,
 ) {
     match on.event() {
         MapSettingChanged::StartingPosition(pos) => {
-            for mut player in player.iter_mut() {
+            for (mut player, mut viewport_obj) in player.iter_mut() {
                 player.translation = get_player_pos(&file, *pos);
+                viewport_obj.old_pos = player.translation;
+            }
+        }
+    }
+}
+
+fn on_select_for_editing(
+    on: On<SelectForEditing>,
+    mut commands: Commands,
+    mut gizmo_options: ResMut<GizmoOptions>,
+    current_gizmos: Query<Entity, With<GizmoTarget>>,
+    player: Query<Entity, With<PlayerMarker>>,
+) {
+    match on.event() {
+        SelectForEditing::StartingPosition => {
+            *gizmo_options = GizmoOptions {
+                gizmo_modes: GizmoMode::TranslateX | GizmoMode::TranslateZ | GizmoMode::TranslateXZ,
+                hotkeys: Some(GizmoHotkeys {
+                    enable_snapping: None,
+                    enable_accurate_mode: None,
+                    ..Default::default()
+                }),
+                snapping: true,
+                ..*gizmo_options
+            };
+            clear_all_gizmos(&mut commands, &current_gizmos);
+            for player in player.iter() {
+                commands.entity(player).insert(GizmoTarget::default());
             }
         }
     }
@@ -139,11 +184,43 @@ fn get_player_pos(file: &LoadedFile, pos: MpsVec2) -> Vec3 {
     Vec3::new(pos.x as f32, tile_y as f32 + 0.375, pos.y as f32)
 }
 
+fn keyboard_handler(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut commands: Commands,
+    current_gizmos: Query<Entity, With<GizmoTarget>>,
+) {
+    if shortcut_pressed!(keys, Alt + KeyA) {
+        clear_all_gizmos(&mut commands, &current_gizmos);
+    }
+}
+
+fn clear_all_gizmos<F: QueryFilter>(commands: &mut Commands, current_gizmos: &Query<Entity, F>) {
+    for gizmo in current_gizmos.iter() {
+        commands.entity(gizmo).remove::<GizmoTarget>();
+    }
+}
+
 fn update_gizmos(mut options: ResMut<GizmoOptions>, viewport: Res<ViewportTarget>) {
     options.viewport_rect = Some(Rect::from_corners(
         viewport.upper_left,
         viewport.upper_left + viewport.size,
     ));
+}
+
+fn sync_from_gizmos(
+    mut commands: Commands,
+    file: Res<LoadedFile>,
+    mut player: Query<(&Transform, &mut ViewportObject), (With<PlayerMarker>, With<GizmoTarget>)>,
+) {
+    for (player_transform, mut old_transform) in player.iter_mut() {
+        let pos = player_transform.translation;
+        if pos != old_transform.old_pos {
+            commands.trigger(MapSettingChanged::StartingPosition(
+                file.in_bounds(MpsVec2::new(pos.x as i32, pos.z as i32)),
+            ));
+            old_transform.old_pos = pos;
+        }
+    }
 }
 
 fn update_lights(

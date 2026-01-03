@@ -5,6 +5,7 @@ use monostate::{MustBe, MustBeBool};
 use serde::{Deserialize, Serialize};
 use serde_with::OneOrMany;
 use serde_with::serde_as;
+use std::ops::Sub;
 use strum::IntoStaticStr;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -41,10 +42,53 @@ impl Default for MapFile {
     }
 }
 
-#[derive(Copy, Clone, Debug, Default, Serialize, Deserialize)]
+impl MapFile {
+    pub fn map_size(&self) -> Option<MpsVec2> {
+        Some(MpsVec2::new(
+            self.data.cols().try_into().ok()?,
+            self.data.rows().try_into().ok()?,
+        ))
+    }
+}
+
+#[derive(Copy, Clone, Debug, Default, Ord, PartialOrd, Eq, PartialEq, Serialize, Deserialize)]
 pub struct MpsVec2 {
     pub x: i32,
     pub y: i32,
+}
+
+impl MpsVec2 {
+    pub const ZERO: Self = Self::new(0, 0);
+    pub const ONE: Self = Self::new(1, 1);
+
+    pub const fn new(x: i32, y: i32) -> Self {
+        Self { x, y }
+    }
+
+    pub fn clamp(self, min: Self, max: Self) -> Self {
+        Self {
+            x: self.x.clamp(min.x, max.x),
+            y: self.y.clamp(min.y, max.y),
+        }
+    }
+
+    pub fn max(self, other: Self) -> Self {
+        Self {
+            x: self.x.max(other.x),
+            y: self.y.max(other.y),
+        }
+    }
+}
+
+impl Sub for MpsVec2 {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        Self {
+            x: self.x - rhs.x,
+            y: self.y - rhs.y,
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug, Default, Serialize, Deserialize)]

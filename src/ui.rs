@@ -1,9 +1,9 @@
-use crate::Directories;
 use crate::docking::UiDocking;
 use crate::load_file::{FileLoaded, LoadedFile, new_file, open_file, save_file, save_file_as};
 use crate::schema::{MapFile, MpsVec2};
-use crate::sync::MapSettingChanged;
+use crate::sync::{MapSettingChanged, SelectForEditing};
 use crate::viewport::ViewportTarget;
+use crate::{Directories, shortcut_pressed};
 use bevy::prelude::Image as BevyImage;
 use bevy::prelude::*;
 use bevy::render::render_resource::Extent3d;
@@ -193,9 +193,13 @@ fn draw_imgui(
     ui.window("Map settings").collapsible(true).build(|| {
         ui.text("Starting tile");
         ui.same_line();
-        ui.button("Edit");
+        if ui.button("Select") {
+            commands.trigger(SelectForEditing::StartingPosition);
+        }
         if ui.input_int2("", &mut state.starting_tile).build() {
-            commands.trigger(MapSettingChanged::StartingPosition(state.starting_tile));
+            commands.trigger(MapSettingChanged::StartingPosition(
+                current_open_file.in_bounds(state.starting_tile),
+            ));
         }
     });
 
@@ -250,38 +254,16 @@ fn keyboard_handler(
     mut ui_state: ResMut<UiState>,
     current_open_file: Res<LoadedFile>,
 ) {
-    macro_rules! modifier_key {
-        (Ctrl) => {
-            [KeyCode::ControlLeft, KeyCode::ControlRight]
-        };
-        (Shift) => {
-            [KeyCode::ShiftLeft, KeyCode::ShiftRight]
-        };
-        (Alt) => {
-            [KeyCode::AltLeft, KeyCode::AltRight]
-        };
-    }
-
-    macro_rules! shortcut_pressed {
-        ($key:ident) => {
-            keys.just_pressed(KeyCode::$key)
-        };
-        ($modifier:ident + $($shortcut:tt)+) => {
-            shortcut_pressed!($($shortcut)+)
-                && keys.any_pressed(modifier_key!($modifier))
-        };
-    }
-
-    if shortcut_pressed!(Ctrl + KeyN) {
+    if shortcut_pressed!(keys, Ctrl + KeyN) {
         new_file(&mut ui_state);
     }
-    if shortcut_pressed!(Ctrl + KeyO) {
+    if shortcut_pressed!(keys, Ctrl + KeyO) {
         open_file(&mut ui_state);
     }
-    if shortcut_pressed!(Ctrl + KeyS) {
+    if shortcut_pressed!(keys, Ctrl + KeyS) {
         save_file(&mut commands, &current_open_file);
     }
-    if shortcut_pressed!(Ctrl + Shift + KeyS) {
+    if shortcut_pressed!(keys, Ctrl + Shift + KeyS) {
         save_file_as(&mut commands, &current_open_file);
     }
 }

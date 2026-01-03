@@ -6,6 +6,11 @@ pub enum MapSettingChanged {
     StartingPosition(MpsVec2),
 }
 
+#[derive(Event, Copy, Clone, Debug)]
+pub enum SelectForEditing {
+    StartingPosition,
+}
+
 impl From<MpsVec2> for mint::Vector2<i32> {
     fn from(value: MpsVec2) -> Self {
         Self {

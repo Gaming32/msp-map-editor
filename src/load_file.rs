@@ -1,5 +1,5 @@
 use crate::TITLE;
-use crate::schema::{MapFile, Textures};
+use crate::schema::{MapFile, MpsVec2, Textures};
 use crate::sync::MapSettingChanged;
 use crate::ui::UiState;
 use bevy::prelude::*;
@@ -28,6 +28,14 @@ impl LoadedFile {
         if !self.dirty {
             self.dirty = true;
             commands.write_message(UpdateHeader);
+        }
+    }
+
+    pub fn in_bounds(&self, pos: MpsVec2) -> MpsVec2 {
+        if let Some(map_size) = self.file.map_size() {
+            pos.clamp(MpsVec2::ZERO, (map_size - MpsVec2::ONE).max(MpsVec2::ZERO))
+        } else {
+            pos
         }
     }
 }
