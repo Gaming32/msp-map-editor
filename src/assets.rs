@@ -82,3 +82,20 @@ pub fn player(assets: &AssetServer, position: Vec3) -> impl Bundle {
         Transform::from_translation(position),
     )
 }
+
+pub fn tutorial_obj(assets: &AssetServer, obj: impl Bundle) -> impl Bundle {
+    (
+        obj,
+        children![(
+            Mesh3d(assets.add(Sphere::new(2.0).into())),
+            MeshMaterial3d(assets.add(StandardMaterial {
+                base_color: Srgba::rgba_u8(161, 61, 204, 32).into(),
+                alpha_mode: AlphaMode::Add,
+                unlit: true,
+                ..Default::default()
+            })),
+            NotShadowCaster,
+            NotShadowReceiver,
+        )],
+    )
+}
