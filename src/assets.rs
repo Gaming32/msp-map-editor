@@ -18,28 +18,30 @@ impl Plugin for EmbeddedAssetsPlugin {
         let registry = app.world().resource::<EmbeddedAssetRegistry>();
 
         macro_rules! embedded_asset {
-            ($app:expr, $path:expr) => {{
+            ($path:literal) => {{
                 let path = embedded_path!("src", $path);
                 registry.insert_asset(PathBuf::new(), &path, include_bytes!($path));
+                path
             }};
-        }
-        macro_rules! embedded_asset_with_meta {
-            ($app:expr, $path:expr) => {{
-                let path = embedded_path!("src", $path);
-                registry.insert_asset(PathBuf::new(), &path, include_bytes!($path));
+
+            ($path:literal with meta) => {{
+                let path = embedded_asset!($path);
                 registry.insert_meta(
                     &PathBuf::new(),
                     &path,
                     include_bytes!(concat!($path, ".meta")),
                 );
+                path
             }};
         }
 
-        embedded_asset!(app, "assets/objects/gold_pipe.glb");
-        embedded_asset!(app, "assets/objects/key_gate.glb");
-        embedded_asset!(app, "assets/objects/star.glb");
+        embedded_asset!("assets/objects/gold_pipe.glb");
+        embedded_asset!("assets/objects/key_gate.glb");
+        embedded_asset!("assets/objects/star.glb");
 
-        embedded_asset_with_meta!(app, "assets/player.png");
+        embedded_asset!("assets/missing_atlas.png" with meta);
+        embedded_asset!("assets/missing_skybox.ktx2");
+        embedded_asset!("assets/player.png" with meta);
     }
 }
 
@@ -111,4 +113,12 @@ pub fn tutorial_obj(assets: &AssetServer, obj: impl Bundle) -> impl Bundle {
             NotShadowReceiver,
         )],
     )
+}
+
+pub fn missing_skybox(assets: &AssetServer) -> Handle<Image> {
+    assets.load(asset_path!("missing_skybox.ktx2"))
+}
+
+pub fn missing_atlas(assets: &AssetServer) -> Handle<Image> {
+    assets.load(asset_path!("missing_atlas.png"))
 }

@@ -1,9 +1,12 @@
-use crate::assets::{PlayerMarker, player};
+use crate::assets::{PlayerMarker, missing_atlas, missing_skybox, player};
 use crate::load_file::{FileLoaded, LoadedFile};
 use crate::schema::MpsVec2;
 use crate::shortcut_pressed;
 use crate::sync::{MapSettingChanged, SelectForEditing};
+use bevy::asset::io::embedded::GetAssetServer;
+use bevy::asset::{LoadState, RenderAssetUsages};
 use bevy::camera::NormalizedRenderTarget;
+use bevy::core_pipeline::Skybox;
 use bevy::ecs::query::QueryFilter;
 use bevy::input::ButtonState;
 use bevy::input::mouse::MouseWheel;
@@ -11,10 +14,15 @@ use bevy::picking::PickingSystems;
 use bevy::picking::pointer::{Location, PointerAction, PointerId, PointerInput};
 use bevy::prelude::Rect;
 use bevy::prelude::*;
-use bevy::render::render_resource::TextureFormat;
+use bevy::render::render_resource::{
+    Extent3d, TextureDataOrder, TextureDimension, TextureFormat, TextureViewDescriptor,
+    TextureViewDimension,
+};
 use bevy::window::WindowEvent;
 use bevy_map_camera::controller::CameraControllerButtons;
 use bevy_map_camera::{CameraControllerSettings, LookTransform, MapCamera, MapCameraPlugin};
+use image::imageops::FilterType;
+use image::{DynamicImage, RgbaImage};
 use std::f32::consts::PI;
 use transform_gizmo_bevy::GizmoHotkeys;
 use transform_gizmo_bevy::prelude::*;
@@ -38,10 +46,17 @@ impl Plugin for ViewportPlugin {
                     1,
                     TextureFormat::Rgba8UnormSrgb,
                 ));
+        let missing_skybox = missing_skybox(app.get_asset_server());
+        let missing_atlas = missing_atlas(app.get_asset_server());
+
         app.insert_resource(ViewportTarget {
             texture: render_texture,
             upper_left: Vec2::default(),
             size: Vec2::new(1.0, 1.0),
+        })
+        .insert_resource(ViewportTextures {
+            skybox: ViewportTextureSet::new(missing_skybox),
+            atlas: ViewportTextureSet::new(missing_atlas),
         })
         .add_plugins((MapCameraPlugin, TransformGizmoPlugin))
         .add_systems(
@@ -59,12 +74,39 @@ impl Plugin for ViewportPlugin {
                 update_gizmos,
                 sync_from_gizmos,
                 update_lights,
+                update_textures,
             ),
         );
     }
 }
 
-fn setup_viewport(mut commands: Commands, viewport_target: Res<ViewportTarget>) {
+#[derive(Resource)]
+struct ViewportTextures {
+    skybox: ViewportTextureSet,
+    atlas: ViewportTextureSet,
+}
+
+struct ViewportTextureSet {
+    missing: Handle<Image>,
+    current: Handle<Image>,
+    outdated: bool,
+}
+
+impl ViewportTextureSet {
+    fn new(image: Handle<Image>) -> Self {
+        Self {
+            missing: image.clone(),
+            current: image,
+            outdated: false,
+        }
+    }
+}
+
+fn setup_viewport(
+    mut commands: Commands,
+    viewport_target: Res<ViewportTarget>,
+    textures: Res<ViewportTextures>,
+) {
     commands.insert_resource(CameraControllerSettings {
         touch_enabled: false, // XXX: touch pick events are not implemented, so touch wouldn't work anyway. Maybe I should fix this.
         minimum_pitch: 0.0,
@@ -86,6 +128,11 @@ fn setup_viewport(mut commands: Commands, viewport_target: Res<ViewportTarget>) 
         Camera {
             target: viewport_target.texture.clone().into(),
             ..Default::default()
+        },
+        Skybox {
+            image: textures.skybox.current.clone(),
+            brightness: 400.0, // Nits
+            rotation: Quat::IDENTITY,
         },
         MapCamera,
         GizmoCamera,
@@ -111,13 +158,19 @@ fn on_file_load(
     _: On<FileLoaded>,
     mut commands: Commands,
     objects: Query<Entity, With<ViewportObject>>,
-    mut camera: Query<&mut LookTransform, With<Camera>>,
+    mut camera: Query<(&mut LookTransform, &mut Skybox), With<Camera>>,
+    mut textures: ResMut<ViewportTextures>,
     assets: Res<AssetServer>,
     file: Res<LoadedFile>,
 ) {
     for existing in objects.iter() {
         commands.entity(existing).despawn();
     }
+
+    textures.skybox.current = textures.skybox.missing.clone();
+    textures.skybox.outdated = true;
+    textures.atlas.current = file.loaded_textures.atlas.image.clone();
+    textures.atlas.outdated = false;
 
     let player_pos = get_player_pos(&file, file.file.starting_tile);
     commands.spawn((
@@ -127,9 +180,10 @@ fn on_file_load(
             old_rot: None,
         },
     ));
-    for mut camera in camera.iter_mut() {
+    for (mut camera, mut skybox) in camera.iter_mut() {
         camera.eye = player_pos + Vec3::new(0.0, 4.0, 8.0);
         camera.target = player_pos;
+        skybox.image = textures.skybox.current.clone();
     }
 }
 
@@ -239,6 +293,86 @@ fn update_lights(
             0.0,
             map_data.rows() as f32 / 2.0,
         );
+    }
+}
+
+fn update_textures(
+    mut textures: ResMut<ViewportTextures>,
+    mut skybox: Query<&mut Skybox>,
+    file: Res<LoadedFile>,
+    assets: Res<AssetServer>,
+    images: Res<Assets<Image>>,
+) {
+    if textures.skybox.outdated
+        && let Some(fallback) = images.get(&textures.skybox.missing)
+        && file.loaded_textures.skybox.iter().all(|x| {
+            matches!(
+                assets.load_state(&x.image),
+                LoadState::Loaded | LoadState::Failed(_)
+            )
+        })
+    {
+        assert_eq!(fallback.data_order, TextureDataOrder::MipMajor);
+        assert_eq!(
+            fallback.texture_descriptor.format,
+            TextureFormat::Rgba8UnormSrgb
+        );
+        let fallback_data = fallback.data.as_ref().expect("Fallback skybox not on CPU");
+        let fallback_stride = fallback.width() as usize * fallback.height() as usize * 4;
+
+        let images = file
+            .loaded_textures
+            .skybox
+            .each_ref()
+            .map(|x| images.get(&x.image));
+        let widest = images.iter().filter_map(|x| x.map(|x| x.width())).max();
+        if let Some(width) = widest {
+            let stride = width as usize * width as usize * 4;
+            let mut result = Vec::with_capacity(stride * 6);
+            for (i, image) in images.into_iter().enumerate() {
+                let image = image
+                    .and_then(|x| x.clone().try_into_dynamic().ok())
+                    .unwrap_or_else(|| {
+                        DynamicImage::ImageRgba8(
+                            RgbaImage::from_vec(
+                                fallback.width(),
+                                fallback.height(),
+                                fallback_data[i * fallback_stride..(i + 1) * fallback_stride]
+                                    .to_vec(),
+                            )
+                            .unwrap(),
+                        )
+                    });
+                result.extend_from_slice(
+                    &image
+                        .resize_exact(width, width, FilterType::Triangle)
+                        .into_rgba8(),
+                );
+            }
+            let mut image = Image::new(
+                Extent3d {
+                    width,
+                    height: width,
+                    depth_or_array_layers: 6,
+                },
+                TextureDimension::D2,
+                result,
+                TextureFormat::Rgba8UnormSrgb,
+                RenderAssetUsages::default(),
+            );
+            image.texture_view_descriptor = Some(TextureViewDescriptor {
+                dimension: Some(TextureViewDimension::Cube),
+                ..Default::default()
+            });
+            textures.skybox.current = assets.add(image);
+        } else {
+            textures.skybox.current = textures.skybox.missing.clone();
+        }
+        textures.skybox.outdated = false;
+
+        for mut skybox in skybox.iter_mut() {
+            skybox.image = textures.skybox.current.clone();
+        }
     }
 }
 

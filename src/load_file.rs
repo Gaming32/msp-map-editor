@@ -8,19 +8,20 @@ use bevy::window::PrimaryWindow;
 use bevy_file_dialog::DialogFileLoaded;
 use bevy_file_dialog::prelude::*;
 use native_dialog::MessageLevel;
+use relative_path::{PathExt, RelativePathBuf};
 use serde::Serialize;
 use serde_json::Serializer;
 use serde_json::ser::PrettyFormatter;
 use std::ffi::OsStr;
-use std::path::PathBuf;
-use std::{env, fs, io};
+use std::path::{Path, PathBuf};
+use std::{env, fs, io, path};
 
 #[derive(Resource, Default)]
 pub struct LoadedFile {
     pub path: Option<PathBuf>,
     pub dirty: bool,
     pub file: MapFile,
-    pub loaded_textures: Option<Textures<Option<LoadedTexture>>>, // TODO: Finish implementing
+    pub loaded_textures: Textures<LoadedTexture>,
 }
 
 impl LoadedFile {
@@ -40,6 +41,7 @@ impl LoadedFile {
     }
 }
 
+#[derive(Clone, Default)]
 pub struct LoadedTexture {
     pub path: PathBuf,
     pub image: Handle<Image>,
@@ -79,27 +81,30 @@ pub fn open_file(ui_state: &mut UiState) {
     });
 }
 
-pub fn save_file(commands: &mut Commands, open_file: &LoadedFile) {
-    if let Some(file_path) = &open_file.path {
-        if let Some(data) = get_write_data(open_file) {
-            commands.write_message(FileSaved {
-                result: fs::write(file_path, data),
-                path: file_path.clone(),
-            });
+pub fn save_file(commands: &mut Commands, open_file: &mut LoadedFile) {
+    if let Some(file_path) = open_file.path.clone() {
+        match get_write_data(open_file) {
+            Ok(data) => {
+                commands.write_message(FileSaved {
+                    result: fs::write(&file_path, data),
+                    path: file_path,
+                });
+            }
+            Err(err) => {
+                file_error("save", &err);
+            }
         }
     } else {
-        save_file_as(commands, open_file);
+        save_file_as(commands);
     }
 }
 
-pub fn save_file_as(commands: &mut Commands, open_file: &LoadedFile) {
-    if let Some(data) = get_write_data(open_file) {
-        commands
-            .dialog()
-            .set_title("Save MSP map file")
-            .add_filter("MSP map files", &["json"])
-            .save_file::<MapFile>(data);
-    }
+pub fn save_file_as(commands: &mut Commands) {
+    commands
+        .dialog()
+        .set_title("Save MSP map file")
+        .add_filter("MSP map files", &["json"])
+        .save_file::<MapFile>(vec![]);
 }
 
 #[derive(Message)]
@@ -126,6 +131,7 @@ fn initial_open_file(
     mut open_file: ResMut<LoadedFile>,
     mut commands: Commands,
     mut ui_state: ResMut<UiState>,
+    assets: Res<AssetServer>,
 ) {
     if let Some(path) = env::args_os().nth(1) {
         let path = PathBuf::from(path);
@@ -136,7 +142,7 @@ fn initial_open_file(
                 return;
             }
         };
-        if handle_load(&mut open_file, &data, path) {
+        if handle_load(&mut open_file, &data, path, &assets) {
             commands.write_message(UpdateHeader);
             commands.trigger(FileLoaded);
         }
@@ -145,6 +151,7 @@ fn initial_open_file(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn file_state_handler(
     mut loaded_reader: MessageReader<DialogFileLoaded<MapFile>>,
     mut saved_reader: MessageReader<FileSaved>,
@@ -153,36 +160,41 @@ fn file_state_handler(
     mut commands: Commands,
     mut open_file: ResMut<LoadedFile>,
     mut window_query: Query<&mut Window, With<PrimaryWindow>>,
+    assets: Res<AssetServer>,
 ) {
-    let mut update_header = {
-        let mut update_header = update_header_reader.read();
-        let update = update_header.next().is_some();
-        for _ in update_header {}
-        update
-    };
+    let mut update_header = update_header_reader.is_empty();
+    update_header_reader.clear();
 
     for loaded in loaded_reader.read() {
-        if handle_load(&mut open_file, &loaded.contents, loaded.path.clone()) {
+        if handle_load(
+            &mut open_file,
+            &loaded.contents,
+            loaded.path.clone(),
+            &assets,
+        ) {
             update_header = true;
             commands.trigger(FileLoaded);
         }
     }
 
-    macro_rules! handle_saved {
-        ($reader:ident) => {
-            for saved in $reader.read() {
-                if let Err(err) = &saved.result {
-                    file_error("save", err);
-                    continue;
-                }
-                open_file.path = Some(saved.path.clone());
-                open_file.dirty = false;
-                update_header = true;
-            }
-        };
+    for saved in saved_reader.read() {
+        if let Err(err) = &saved.result {
+            file_error("save", err);
+            continue;
+        }
+        open_file.path = Some(saved.path.clone());
+        open_file.dirty = false;
+        update_header = true;
     }
-    handle_saved!(saved_reader);
-    handle_saved!(saved_as_reader);
+
+    for saved in saved_as_reader.read() {
+        if let Err(err) = &saved.result {
+            file_error("save", err);
+            continue;
+        }
+        open_file.path = Some(saved.path.clone());
+        save_file(&mut commands, &mut open_file);
+    }
 
     if update_header && let Ok(mut window) = window_query.single_mut() {
         window.title = format!(
@@ -197,34 +209,96 @@ fn file_state_handler(
     }
 }
 
-fn handle_load(open_file: &mut LoadedFile, data: &[u8], path: PathBuf) -> bool {
-    let file_data = match serde_json::from_slice(data) {
+fn handle_load(
+    open_file: &mut LoadedFile,
+    data: &[u8],
+    path: PathBuf,
+    assets: &AssetServer,
+) -> bool {
+    let root_dir = path
+        .parent()
+        .expect("File shouldn't have been loadable without a parent");
+    open_file.file = match serde_json::from_slice(data) {
         Ok(data) => data,
         Err(err) => {
             file_error("open", &err);
             return false;
         }
     };
-    open_file.file = file_data;
-    open_file.path = Some(path);
     open_file.dirty = false;
+
+    let load_texture = |path: &RelativePathBuf| {
+        let path = path.to_path(root_dir);
+        LoadedTexture {
+            path: path.clone(),
+            image: assets.load_override(path),
+        }
+    };
+
+    open_file.loaded_textures = Textures {
+        skybox: open_file.file.textures.skybox.each_ref().map(load_texture),
+        atlas: load_texture(&open_file.file.textures.atlas),
+    };
+
+    open_file.path = Some(path);
     true
 }
 
-fn get_write_data(open_file: &LoadedFile) -> Option<Vec<u8>> {
+fn get_write_data(open_file: &mut LoadedFile) -> Result<Vec<u8>> {
+    let root_path = normalize_path(
+        open_file
+            .path
+            .as_deref()
+            .expect("get_write_data called without a path"),
+    )?;
+    let root_path = root_path
+        .parent()
+        .expect("get_write_data called with an invalid path");
+    let convert_path = |from: &LoadedTexture, to: &mut RelativePathBuf| -> Result<()> {
+        *to = normalize_path(&from.path)?.relative_to(root_path)?;
+        Ok(())
+    };
+    for (from, to) in open_file
+        .loaded_textures
+        .skybox
+        .iter()
+        .zip(open_file.file.textures.skybox.iter_mut())
+    {
+        convert_path(from, to)?;
+    }
+    convert_path(
+        &open_file.loaded_textures.atlas,
+        &mut open_file.file.textures.atlas,
+    )?;
+
     let mut serializer =
         Serializer::with_formatter(Vec::new(), PrettyFormatter::with_indent("\t".as_bytes()));
-    match open_file.file.serialize(&mut serializer) {
-        Ok(()) => Some(serializer.into_inner()),
-        Err(err) => {
-            file_error("save", &err);
-            None
+    open_file.file.serialize(&mut serializer)?;
+    Ok(serializer.into_inner())
+}
+
+fn normalize_path(path: impl AsRef<Path>) -> io::Result<PathBuf> {
+    use path::Component;
+    let mut result = PathBuf::new();
+    for component in path::absolute(path)?.components() {
+        match component {
+            Component::Prefix(prefix) => result.push(prefix.as_os_str()),
+            Component::RootDir => result.push(component.as_os_str()),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !result.pop() {
+                    return Err(io::Error::other("Path attempted to resolve .. from root"));
+                }
+            }
+            Component::Normal(part) => result.push(part),
         }
     }
+    Ok(result)
 }
 
 fn file_error(what: &str, error: &impl std::fmt::Display) {
     let text = format!("Failed to {what} file: {error}");
+    error!("{text}");
     AsyncComputeTaskPool::get()
         .spawn(async move {
             let _ = native_dialog::MessageDialogBuilder::default()

@@ -94,7 +94,7 @@ fn draw_imgui(
     mut context: NonSendMut<ImguiContext>,
     mut state: ResMut<UiState>,
     time: Res<Time>,
-    current_open_file: Res<LoadedFile>,
+    mut current_open_file: ResMut<LoadedFile>,
     mut commands: Commands,
     window_query: Query<Entity, With<PrimaryWindow>>,
     mut viewport_target: ResMut<ViewportTarget>,
@@ -143,7 +143,7 @@ fn draw_imgui(
             }
 
             if ui.menu_item_config("Save").shortcut("Ctrl+S").build() {
-                save_file(&mut commands, &current_open_file);
+                save_file(&mut commands, &mut current_open_file);
             }
 
             if ui
@@ -151,7 +151,7 @@ fn draw_imgui(
                 .shortcut("Ctrl+Shift+S")
                 .build()
             {
-                save_file_as(&mut commands, &current_open_file);
+                save_file_as(&mut commands);
             }
 
             ui.separator();
@@ -232,7 +232,7 @@ fn draw_imgui(
         }
         ui.same_line();
         if ui.button("Save") {
-            save_file(&mut commands, &current_open_file);
+            save_file(&mut commands, &mut current_open_file);
             close = true;
         }
 
@@ -252,7 +252,7 @@ fn keyboard_handler(
     keys: Res<ButtonInput<KeyCode>>,
     mut commands: Commands,
     mut ui_state: ResMut<UiState>,
-    current_open_file: Res<LoadedFile>,
+    mut current_open_file: ResMut<LoadedFile>,
 ) {
     if shortcut_pressed!(keys, Ctrl + KeyN) {
         new_file(&mut ui_state);
@@ -261,10 +261,10 @@ fn keyboard_handler(
         open_file(&mut ui_state);
     }
     if shortcut_pressed!(keys, Ctrl + KeyS) {
-        save_file(&mut commands, &current_open_file);
+        save_file(&mut commands, &mut current_open_file);
     }
     if shortcut_pressed!(keys, Ctrl + Shift + KeyS) {
-        save_file_as(&mut commands, &current_open_file);
+        save_file_as(&mut commands);
     }
 }
 

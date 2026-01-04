@@ -3686,11 +3686,13 @@ dependencies = [
  "directories",
  "enum-map",
  "grid 1.0.0",
+ "image",
  "imgui",
  "itertools 0.14.0",
  "mint",
  "monostate",
  "native-dialog",
+ "relative-path",
  "serde",
  "serde_json",
  "serde_with",
@@ -4726,6 +4728,15 @@ name = "regex-syntax"
 version = "0.8.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7a2d987857b319362043e95f5353c0535c1f58eec5336fdfcf626430af7def58"
+
+[[package]]
+name = "relative-path"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bca40a312222d8ba74837cb474edef44b37f561da5f773981007a10bbaa992b0"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "renderdoc-sys"

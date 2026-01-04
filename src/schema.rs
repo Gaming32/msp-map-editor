@@ -2,6 +2,7 @@ use crate::utils::grid_as_vec_vec;
 use enum_map::{Enum, EnumMap};
 use grid::{Grid, grid};
 use monostate::{MustBe, MustBeBool};
+use relative_path::RelativePathBuf;
 use serde::{Deserialize, Serialize};
 use serde_with::OneOrMany;
 use serde_with::serde_as;
@@ -19,7 +20,7 @@ pub struct MapFile {
     pub tutorial_star: MpsTransform,
     pub tutorial_shop: MpsTransform,
     #[serde(flatten)]
-    pub textures: Textures<String>,
+    pub textures: Textures<RelativePathBuf>,
     pub shops: EnumMap<ShopNumber, Vec<ShopItem>>,
     #[serde(with = "grid_as_vec_vec")]
     pub data: Grid<TileData>,
@@ -108,7 +109,6 @@ pub struct MpsVec3 {
 #[serde(rename_all = "camelCase")]
 pub struct Textures<T> {
     pub skybox: CubeMap<T>,
-    pub dark_skybox: CubeMap<T>,
     pub atlas: T,
 }
 

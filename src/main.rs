@@ -14,6 +14,7 @@ use crate::assets::EmbeddedAssetsPlugin;
 use crate::load_file::LoadFilePlugin;
 use crate::ui::MapEditorUi;
 use crate::viewport::ViewportPlugin;
+use bevy::asset::UnapprovedPathMode;
 use bevy::log::LogPlugin;
 use bevy::prelude::*;
 use bevy_panic_handler::PanicHandler;
@@ -71,6 +72,11 @@ fn main() {
                 .set(LogPlugin {
                     filter: "info,wgpu=error,naga=warn,bevy_map_camera::controller::mouse=error"
                         .to_string(),
+                    ..Default::default()
+                })
+                .set(AssetPlugin {
+                    file_path: "".to_string(),
+                    unapproved_path_mode: UnapprovedPathMode::Deny,
                     ..Default::default()
                 }),
             PanicHandler::new()
