@@ -1,4 +1,4 @@
-use crate::assets::{PlayerMarker, missing_atlas, missing_skybox, player};
+use crate::assets::{missing_atlas, missing_skybox, player, PlayerMarker};
 use crate::load_file::{FileLoaded, LoadedFile};
 use crate::schema::MpsVec2;
 use crate::shortcut_pressed;
@@ -8,10 +8,10 @@ use bevy::asset::{LoadState, RenderAssetUsages};
 use bevy::camera::NormalizedRenderTarget;
 use bevy::core_pipeline::Skybox;
 use bevy::ecs::query::QueryFilter;
-use bevy::input::ButtonState;
 use bevy::input::mouse::MouseWheel;
-use bevy::picking::PickingSystems;
+use bevy::input::ButtonState;
 use bevy::picking::pointer::{Location, PointerAction, PointerId, PointerInput};
+use bevy::picking::PickingSystems;
 use bevy::prelude::Rect;
 use bevy::prelude::*;
 use bevy::render::render_resource::{
@@ -24,8 +24,8 @@ use bevy_map_camera::{CameraControllerSettings, LookTransform, MapCamera, MapCam
 use image::imageops::FilterType;
 use image::{DynamicImage, RgbaImage};
 use std::f32::consts::PI;
-use transform_gizmo_bevy::GizmoHotkeys;
 use transform_gizmo_bevy::prelude::*;
+use transform_gizmo_bevy::GizmoHotkeys;
 
 #[derive(Resource)]
 pub struct ViewportTarget {
@@ -325,9 +325,12 @@ fn update_textures(
             .skybox
             .each_ref()
             .map(|x| images.get(&x.image));
-        let widest = images.iter().filter_map(|x| x.map(|x| x.width())).max();
-        if let Some(width) = widest {
-            let stride = width as usize * width as usize * 4;
+        let biggest = images
+            .iter()
+            .filter_map(|x| x.map(|x| x.width().max(x.height())))
+            .max();
+        if let Some(size) = biggest {
+            let stride = size as usize * size as usize * 4;
             let mut result = Vec::with_capacity(stride * 6);
             for (i, image) in images.into_iter().enumerate() {
                 let image = image
@@ -345,14 +348,14 @@ fn update_textures(
                     });
                 result.extend_from_slice(
                     &image
-                        .resize_exact(width, width, FilterType::Triangle)
+                        .resize_exact(size, size, FilterType::Triangle)
                         .into_rgba8(),
                 );
             }
             let mut image = Image::new(
                 Extent3d {
-                    width,
-                    height: width,
+                    width: size,
+                    height: size,
                     depth_or_array_layers: 6,
                 },
                 TextureDimension::D2,
