@@ -1,8 +1,9 @@
-use bevy::asset::embedded_asset;
-use bevy::image::{ImageLoaderSettings, ImageSampler};
+use bevy::asset::embedded_path;
+use bevy::asset::io::embedded::EmbeddedAssetRegistry;
 use bevy::light::{NotShadowCaster, NotShadowReceiver};
 use bevy::prelude::*;
 use std::f32::consts::PI;
+use std::path::PathBuf;
 
 macro_rules! asset_path {
     ($path:literal) => {
@@ -14,11 +15,31 @@ pub struct EmbeddedAssetsPlugin;
 
 impl Plugin for EmbeddedAssetsPlugin {
     fn build(&self, app: &mut App) {
+        let registry = app.world().resource::<EmbeddedAssetRegistry>();
+
+        macro_rules! embedded_asset {
+            ($app:expr, $path:expr) => {{
+                let path = embedded_path!("src", $path);
+                registry.insert_asset(PathBuf::new(), &path, include_bytes!($path));
+            }};
+        }
+        macro_rules! embedded_asset_with_meta {
+            ($app:expr, $path:expr) => {{
+                let path = embedded_path!("src", $path);
+                registry.insert_asset(PathBuf::new(), &path, include_bytes!($path));
+                registry.insert_meta(
+                    &PathBuf::new(),
+                    &path,
+                    include_bytes!(concat!($path, ".meta")),
+                );
+            }};
+        }
+
         embedded_asset!(app, "assets/objects/gold_pipe.glb");
         embedded_asset!(app, "assets/objects/key_gate.glb");
         embedded_asset!(app, "assets/objects/star.glb");
 
-        embedded_asset!(app, "assets/player.png");
+        embedded_asset_with_meta!(app, "assets/player.png");
     }
 }
 
@@ -63,15 +84,7 @@ pub fn player(assets: &AssetServer, position: Vec3) -> impl Bundle {
         PlayerMarker,
         Mesh3d(assets.add(Plane3d::new(Vec3::Z, Vec2::new(0.6, 0.75)).into())),
         MeshMaterial3d(assets.add(StandardMaterial {
-            base_color_texture: Some(assets.load_with_settings(
-                asset_path!("player.png"),
-                |s: &mut _| {
-                    *s = ImageLoaderSettings {
-                        sampler: ImageSampler::nearest(),
-                        ..Default::default()
-                    };
-                },
-            )),
+            base_color_texture: Some(assets.load(asset_path!("player.png"))),
             alpha_mode: AlphaMode::Mask(0.5),
             perceptual_roughness: 1.0,
             double_sided: true,
