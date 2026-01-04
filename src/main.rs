@@ -39,7 +39,7 @@ pub struct MapEditor;
 
 impl Plugin for MapEditor {
     fn build(&self, app: &mut App) {
-        if let Some(dirs) = ProjectDirs::from("io.github", "Gaming32", "msp-map-editor") {
+        if let Some(dirs) = ProjectDirs::from("io.github", "TakiSoftware", "msp-map-editor") {
             let dirs_resource = Directories {
                 data: dirs.data_dir().to_owned(),
             };
