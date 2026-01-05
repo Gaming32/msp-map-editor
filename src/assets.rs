@@ -61,7 +61,7 @@ pub fn gold_pipe(assets: &AssetServer, position: Vec3) -> impl Bundle {
     )
 }
 
-pub fn key_gate(assets: &AssetServer, position: Vec3, rotation: f32) -> impl Bundle {
+pub fn key_gate(assets: &AssetServer, position: Vec3, rotation: f32) -> (SceneRoot, Transform) {
     (
         SceneRoot(assets.load(asset_path!("objects/key_gate.glb#Scene0"))),
         Transform::from_translation(position)

@@ -1,8 +1,13 @@
-use crate::schema::{MpsMaterial, TileData, TileHeight, TileRampDirection};
+use crate::assets::key_gate;
+use crate::schema::{
+    Connection, ConnectionCondition, MpsMaterial, TileData, TileHeight, TileRampDirection,
+};
 use bevy::asset::RenderAssetUsages;
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
 use grid::Grid;
+use std::cmp::Ordering;
+use std::f32::consts::{FRAC_PI_2, PI};
 
 #[derive(Component)]
 pub struct MapMeshMarker;
@@ -13,14 +18,15 @@ pub fn mesh_map(
     assets: &AssetServer,
 ) -> impl Bundle {
     #[derive(Bundle)]
-    struct MeshObject {
+    struct ChildObject {
         mesh: Mesh3d,
         material: MeshMaterial3d<StandardMaterial>,
         transform: Transform,
     }
 
     let mut state = State::new(map);
-    let mut children: Vec<MeshObject> = vec![];
+    let mut block_children = vec![];
+    let mut key_gates = vec![];
 
     let block_material = assets.add(StandardMaterial {
         base_color: Srgba::rgb_u8(0x11, 0x11, 0x11).into(),
@@ -105,7 +111,7 @@ pub fn mesh_map(
         const BLOCK_SIZE: f32 = 1.0 / 8.0;
         const BLOCK_SIZE_2: f32 = BLOCK_SIZE / 2.0;
         let mut add_block = |width, depth, x, z| {
-            children.push(MeshObject {
+            block_children.push(ChildObject {
                 mesh: Mesh3d(assets.add(Cuboid::new(width, BLOCK_SIZE, depth).into())),
                 material: MeshMaterial3d(block_material.clone()),
                 transform: Transform::from_translation(Vec3::new(
@@ -156,7 +162,7 @@ pub fn mesh_map(
         const TRIM_SIZE: f32 = BLOCK_SIZE / 2.0;
         const TRIM_SIZE_2: f32 = TRIM_SIZE / 2.0;
         let mut add_trim = |width, depth, x, y_offset, z, x_angle, z_angle| {
-            children.push(MeshObject {
+            block_children.push(ChildObject {
                 mesh: Mesh3d(assets.add(Cuboid::new(width, TRIM_SIZE, depth).into())),
                 material: MeshMaterial3d(trim_material.clone()),
                 transform: Transform::from_translation(Vec3::new(
@@ -322,16 +328,56 @@ pub fn mesh_map(
         if y == map.rows() - 1 || map[(y + 1, x)].height == TileHeight::default() {
             z_axis_trim!(yf + 0.5 - TRIM_SIZE_2);
         }
+
+        const LOCKED_CONNECTION: Connection = Connection::Conditional(ConnectionCondition::Lock);
+        if x > 0
+            && tile.connections.west == LOCKED_CONNECTION
+            && map[(y, x - 1)].connections.east == LOCKED_CONNECTION
+        {
+            let neighbor = &map[(y, x - 1)];
+            let height = tile.height.center_height() as f32;
+            let neighbor_height = neighbor.height.center_height() as f32;
+            key_gates.push(key_gate(
+                assets,
+                match height.total_cmp(&neighbor_height) {
+                    Ordering::Greater => Vec3::new(xf - 0.4375, height, yf),
+                    Ordering::Less => Vec3::new(xf - 1.0 + 0.4375, neighbor_height, yf),
+                    Ordering::Equal => Vec3::new(xf - 0.5, height, yf),
+                },
+                if height < neighbor_height {
+                    -FRAC_PI_2
+                } else {
+                    FRAC_PI_2
+                },
+            ));
+        }
+        if y > 0
+            && tile.connections.north == LOCKED_CONNECTION
+            && map[(y - 1, x)].connections.south == LOCKED_CONNECTION
+        {
+            let neighbor = &map[(y - 1, x)];
+            let height = tile.height.center_height() as f32;
+            let neighbor_height = neighbor.height.center_height() as f32;
+            key_gates.push(key_gate(
+                assets,
+                match height.total_cmp(&neighbor_height) {
+                    Ordering::Greater => Vec3::new(xf, height, yf - 0.4375),
+                    Ordering::Less => Vec3::new(xf, neighbor_height, yf - 1.0 + 0.4375),
+                    Ordering::Equal => Vec3::new(xf, height, yf - 0.5),
+                },
+                if height < neighbor_height { PI } else { 0.0 },
+            ));
+        }
     }
 
     (
-        MeshObject {
+        ChildObject {
             mesh: Mesh3d(assets.add(state.into_mesh())),
             material: MeshMaterial3d(atlas),
             transform: Transform::default(),
         },
         MapMeshMarker,
-        Children::spawn(children),
+        Children::spawn((block_children, key_gates)),
     )
 }
 
