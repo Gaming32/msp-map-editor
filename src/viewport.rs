@@ -23,7 +23,7 @@ use bevy_map_camera::controller::CameraControllerButtons;
 use bevy_map_camera::{CameraControllerSettings, LookTransform, MapCamera, MapCameraPlugin};
 use image::imageops::FilterType;
 use image::{DynamicImage, GenericImageView, RgbaImage};
-use std::f32::consts::{FRAC_PI_2, PI};
+use std::f32::consts::PI;
 use std::time::Instant;
 use transform_gizmo_bevy::GizmoHotkeys;
 use transform_gizmo_bevy::prelude::*;
@@ -118,6 +118,7 @@ fn setup_viewport(
     mut commands: Commands,
     viewport_target: Res<ViewportTarget>,
     textures: Res<ViewportState>,
+    mut ambient_light: ResMut<AmbientLight>,
 ) {
     commands.insert_resource(CameraControllerSettings {
         touch_enabled: false, // XXX: touch pick events are not implemented, so touch wouldn't work anyway. Maybe I should fix this.
@@ -146,14 +147,6 @@ fn setup_viewport(
             brightness: 400.0, // Nits
             rotation: Quat::IDENTITY,
         },
-        SpotLight {
-            range: 500.0,
-            radius: 500.0,
-            intensity: 250_000.0,
-            outer_angle: FRAC_PI_2,
-            inner_angle: FRAC_PI_2,
-            ..Default::default()
-        },
         MapCamera,
         GizmoCamera,
         LookTransform::default(),
@@ -167,6 +160,7 @@ fn setup_viewport(
             ..Default::default()
         },
     ));
+    ambient_light.brightness = 160.0;
 }
 
 #[derive(Component)]
