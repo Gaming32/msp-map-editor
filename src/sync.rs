@@ -5,7 +5,7 @@ use bevy::prelude::Event;
 #[derive(Event, Clone, Debug)]
 pub struct MapEdited(pub MapEdit);
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum MapEdit {
     StartingPosition(MpsVec2),
     Skybox(usize, LoadedTexture),

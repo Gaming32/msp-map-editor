@@ -271,6 +271,26 @@ fn draw_imgui(
                 commands.write_message(WindowCloseRequested { window });
             }
         });
+
+        ui.menu("Edit", || {
+            if ui
+                .menu_item_config("Undo")
+                .shortcut("Ctrl+Z")
+                .enabled(current_open_file.can_undo())
+                .build()
+            {
+                current_open_file.undo(&mut commands);
+            }
+
+            if ui
+                .menu_item_config("Redo")
+                .shortcut("Ctrl+Shift+Z")
+                .enabled(current_open_file.can_redo())
+                .build()
+            {
+                current_open_file.redo(&mut commands);
+            }
+        });
     });
 
     ui.window("Viewport").collapsible(true).build(|| {
@@ -404,11 +424,16 @@ fn keyboard_handler(
     if shortcut_pressed!(keys, Ctrl + KeyO) {
         open_file(&mut ui_state);
     }
-    if shortcut_pressed!(keys, Ctrl + KeyS) {
-        save_file(&mut commands, &mut current_open_file);
-    }
     if shortcut_pressed!(keys, Ctrl + Shift + KeyS) {
         save_file_as(&mut commands);
+    } else if shortcut_pressed!(keys, Ctrl + KeyS) {
+        save_file(&mut commands, &mut current_open_file);
+    }
+
+    if shortcut_pressed!(keys, Ctrl + Shift + KeyZ) {
+        current_open_file.redo(&mut commands);
+    } else if shortcut_pressed!(keys, Ctrl + KeyZ) {
+        current_open_file.undo(&mut commands);
     }
 }
 

@@ -325,14 +325,18 @@ fn update_gizmos(mut options: ResMut<GizmoOptions>, viewport: Res<ViewportTarget
 fn sync_from_gizmos(
     mut commands: Commands,
     mut file: ResMut<LoadedFile>,
-    mut player: Query<(&Transform, &mut ViewportObject), (With<PlayerMarker>, With<GizmoTarget>)>,
+    mut player: Query<(&mut Transform, &mut ViewportObject, &GizmoTarget), With<PlayerMarker>>,
 ) {
-    for (player_transform, mut old_transform) in player.iter_mut() {
+    for (mut player_transform, mut old_transform, gizmo) in player.iter_mut() {
         let pos = player_transform.translation;
         if pos != old_transform.old_pos {
             let in_bounds_pos = file.in_bounds(MpsVec2::new(pos.x as i32, pos.z as i32));
-            file.edit_map(&mut commands, MapEdit::StartingPosition(in_bounds_pos));
-            old_transform.old_pos = pos;
+            if gizmo.is_active() {
+                player_transform.translation = get_player_pos(&file, in_bounds_pos);
+            } else {
+                file.edit_map(&mut commands, MapEdit::StartingPosition(in_bounds_pos));
+                old_transform.old_pos = pos;
+            }
         }
     }
 }

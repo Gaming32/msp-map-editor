@@ -23,16 +23,11 @@ pub struct LoadedFile {
     pub dirty: bool,
     pub file: MapFile,
     pub loaded_textures: Textures<LoadedTexture>,
+    pub history: Vec<HistoryItem>,
+    pub history_index: usize,
 }
 
 impl LoadedFile {
-    fn mark_dirty(&mut self, commands: &mut Commands) {
-        if !self.dirty {
-            self.dirty = true;
-            commands.write_message(UpdateHeader);
-        }
-    }
-
     pub fn in_bounds(&self, pos: MpsVec2) -> MpsVec2 {
         if let Some(map_size) = self.file.map_size() {
             pos.clamp(MpsVec2::ZERO, (map_size - MpsVec2::ONE).max(MpsVec2::ZERO))
@@ -41,22 +36,74 @@ impl LoadedFile {
         }
     }
 
-    pub fn edit_map(&mut self, commands: &mut Commands, setting: MapEdit) {
-        match &setting {
+    pub fn edit_map(&mut self, commands: &mut Commands, edit: MapEdit) {
+        let reversed = match edit {
+            MapEdit::StartingPosition(_) => MapEdit::StartingPosition(self.file.starting_tile),
+            MapEdit::Skybox(index, _) => {
+                MapEdit::Skybox(index, self.loaded_textures.skybox[index].clone())
+            }
+        };
+        if edit == reversed {
+            return;
+        }
+
+        self.history.truncate(self.history_index);
+        self.history.push(HistoryItem {
+            forward: edit.clone(),
+            back: reversed,
+        });
+        self.history_index += 1;
+
+        self.apply_edit(commands, edit);
+    }
+
+    pub fn undo(&mut self, commands: &mut Commands) {
+        if self.history_index > 0 {
+            self.history_index -= 1;
+            self.apply_edit(commands, self.history[self.history_index].back.clone());
+        }
+    }
+
+    pub fn redo(&mut self, commands: &mut Commands) {
+        if self.history_index < self.history.len() {
+            self.apply_edit(commands, self.history[self.history_index].forward.clone());
+            self.history_index += 1;
+        }
+    }
+
+    fn apply_edit(&mut self, commands: &mut Commands, edit: MapEdit) {
+        match &edit {
             MapEdit::StartingPosition(pos) => self.file.starting_tile = *pos,
             MapEdit::Skybox(index, image) => {
                 self.loaded_textures.skybox[*index] = image.clone();
             }
         }
-        self.mark_dirty(commands);
-        commands.trigger(MapEdited(setting));
+        if !self.dirty {
+            self.dirty = true;
+            commands.write_message(UpdateHeader);
+        }
+        commands.trigger(MapEdited(edit));
+    }
+
+    pub fn can_undo(&self) -> bool {
+        self.history_index > 0
+    }
+
+    pub fn can_redo(&self) -> bool {
+        self.history_index < self.history.len()
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct LoadedTexture {
     pub path: PathBuf,
     pub image: Handle<Image>,
+}
+
+#[derive(Clone, Debug)]
+pub struct HistoryItem {
+    pub forward: MapEdit,
+    pub back: MapEdit,
 }
 
 pub struct LoadFilePlugin;
