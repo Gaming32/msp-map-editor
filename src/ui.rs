@@ -1,11 +1,11 @@
-use crate::assets::unset_texture;
+use crate::assets::{reload_icon, unset_texture_icon};
 use crate::docking::UiDocking;
 use crate::load_file::{
     FileLoaded, LoadedFile, LoadedTexture, MapFileDialog, new_file, open_file, save_file,
     save_file_as,
 };
 use crate::schema::{CubeMap, MpsVec2};
-use crate::sync::{EditObject, MapSettingChanged, SelectForEditing};
+use crate::sync::{EditObject, MapEdit, SelectForEditing};
 use crate::viewport::ViewportTarget;
 use crate::{Directories, shortcut_pressed};
 use bevy::asset::LoadState;
@@ -32,7 +32,8 @@ impl Plugin for MapEditorUi {
 
         app.insert_resource(UiState {
             free_timer: Timer::new(Duration::from_millis(500), TimerMode::Repeating),
-            unset_texture: unset_texture(app.get_asset_server()),
+            unset_texture_icon: unset_texture_icon(app.get_asset_server()),
+            reload_icon_handle: reload_icon(app.get_asset_server()),
             ..Default::default()
         })
         .add_plugins((
@@ -70,7 +71,9 @@ pub struct UiState {
     pending_close_state: PendingCloseState,
     starting_tile: MpsVec2,
     skybox_textures: Option<CubeMap<TextureId>>,
-    unset_texture: Handle<BevyImage>,
+    unset_texture_icon: Handle<BevyImage>,
+    reload_icon_handle: Handle<BevyImage>,
+    reload_icon: Option<TextureId>,
     waiting_textures: Vec<SettingImageLoadWait>,
 }
 
@@ -116,7 +119,7 @@ fn on_file_loaded(
         context.register_bevy_texture(if tex.image != Handle::default() {
             tex.image.clone()
         } else {
-            state.unset_texture.clone()
+            state.unset_texture_icon.clone()
         })
     });
     if let Some(old_textures) = state.skybox_textures.replace(new_skybox_textures) {
@@ -124,10 +127,10 @@ fn on_file_loaded(
     }
 }
 
-fn on_map_setting_changed(on: On<MapSettingChanged>, mut state: ResMut<UiState>) {
+fn on_map_setting_changed(on: On<MapEdit>, mut state: ResMut<UiState>) {
     match on.event() {
-        MapSettingChanged::StartingPosition(pos) => state.starting_tile = *pos,
-        MapSettingChanged::Skybox(index, image) => {
+        MapEdit::StartingPosition(pos) => state.starting_tile = *pos,
+        MapEdit::Skybox(index, image) => {
             state.waiting_textures.push(SettingImageLoadWait {
                 image: image.image.clone(),
                 pick: SettingImagePick::Skybox(*index),
@@ -150,9 +153,9 @@ fn setting_image_picked(
             };
         });
         match picked.data {
-            SettingImagePick::Skybox(index) => file.change_map_setting(
+            SettingImagePick::Skybox(index) => file.edit_map(
                 &mut commands,
-                MapSettingChanged::Skybox(
+                MapEdit::Skybox(
                     index,
                     LoadedTexture {
                         path: picked.path.clone(),
@@ -206,6 +209,10 @@ fn draw_imgui(
         });
     state.skybox_textures = skybox_textures;
     state.textures_to_free.extend(removed_textures);
+
+    if state.reload_icon.is_none() && assets.is_loaded(&state.reload_icon_handle) {
+        state.reload_icon = Some(context.register_bevy_texture(state.reload_icon_handle.clone()));
+    }
 
     state.free_timer.tick(time.delta());
     if state.free_timer.just_finished() && !state.textures_to_free.is_empty() {
@@ -301,10 +308,12 @@ fn draw_imgui(
                 exclusive: true,
             });
         }
-        if ui.input_int2("", &mut state.starting_tile).build() {
+        if ui
+            .input_int2("##Starting Tile", &mut state.starting_tile)
+            .build()
+        {
             let pos = current_open_file.in_bounds(state.starting_tile);
-            current_open_file
-                .change_map_setting(&mut commands, MapSettingChanged::StartingPosition(pos));
+            current_open_file.edit_map(&mut commands, MapEdit::StartingPosition(pos));
         }
 
         ui.spacing();
@@ -314,6 +323,7 @@ fn draw_imgui(
         ];
 
         if let Some(skybox) = state.skybox_textures
+            && let Some(reload_icon) = state.reload_icon
             && let Some(_token) = ui.tree_node_config("Skybox").framed(true).push()
         {
             const LABELS: CubeMap<&str> = ["Right", "Left", "Up", "Down", "Front", "Back"];
@@ -324,6 +334,12 @@ fn draw_imgui(
                         .set_title("Choose skybox file")
                         .add_filter("Skybox images", SUPPORTED_IMAGE_EXTENSIONS)
                         .pick_file_path(SettingImagePick::Skybox(index));
+                }
+                ui.same_line();
+                if ui.image_button(format!("Reload {label}"), reload_icon, [16.0; 2]) {
+                    let texture = &current_open_file.loaded_textures.skybox[index];
+                    assets.reload(texture.path.clone());
+                    commands.trigger(MapEdit::Skybox(index, texture.clone()));
                 }
                 ui.same_line();
                 ui.text(label);

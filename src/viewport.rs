@@ -2,7 +2,7 @@ use crate::assets::{PlayerMarker, missing_atlas, missing_skybox, player};
 use crate::load_file::{FileLoaded, LoadedFile};
 use crate::mesh::{MapMeshMarker, mesh_map};
 use crate::schema::MpsVec2;
-use crate::sync::{EditObject, MapSettingChanged, SelectForEditing};
+use crate::sync::{EditObject, MapEdit, SelectForEditing};
 use crate::{modifier_key, shortcut_pressed};
 use bevy::asset::io::embedded::GetAssetServer;
 use bevy::asset::{LoadState, RenderAssetUsages};
@@ -225,19 +225,19 @@ fn on_file_load(
 }
 
 fn on_map_setting_changed(
-    on: On<MapSettingChanged>,
+    on: On<MapEdit>,
     file: Res<LoadedFile>,
     mut player: Query<(&mut Transform, &mut ViewportObject), With<PlayerMarker>>,
     mut textures: ResMut<ViewportState>,
 ) {
     match on.event() {
-        MapSettingChanged::StartingPosition(pos) => {
+        MapEdit::StartingPosition(pos) => {
             for (mut player, mut viewport_obj) in player.iter_mut() {
                 player.translation = get_player_pos(&file, *pos);
                 viewport_obj.old_pos = player.translation;
             }
         }
-        MapSettingChanged::Skybox(_, _) => {
+        MapEdit::Skybox(_, _) => {
             textures.skybox.outdated = true;
         }
     }
@@ -331,10 +331,7 @@ fn sync_from_gizmos(
         let pos = player_transform.translation;
         if pos != old_transform.old_pos {
             let in_bounds_pos = file.in_bounds(MpsVec2::new(pos.x as i32, pos.z as i32));
-            file.change_map_setting(
-                &mut commands,
-                MapSettingChanged::StartingPosition(in_bounds_pos),
-            );
+            file.edit_map(&mut commands, MapEdit::StartingPosition(in_bounds_pos));
             old_transform.old_pos = pos;
         }
     }

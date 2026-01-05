@@ -35,6 +35,9 @@ impl Plugin for EmbeddedAssetsPlugin {
             }};
         }
 
+        embedded_asset!("assets/icons/reload.png");
+        embedded_asset!("assets/icons/unset_texture.png");
+
         embedded_asset!("assets/objects/gold_pipe.glb");
         embedded_asset!("assets/objects/key_gate.glb");
         embedded_asset!("assets/objects/star.glb");
@@ -42,7 +45,6 @@ impl Plugin for EmbeddedAssetsPlugin {
         embedded_asset!("assets/missing_atlas.png" with meta);
         embedded_asset!("assets/missing_skybox.ktx2");
         embedded_asset!("assets/player.png" with meta);
-        embedded_asset!("assets/unset_texture.png");
     }
 }
 
@@ -124,6 +126,10 @@ pub fn missing_atlas(assets: &AssetServer) -> Handle<Image> {
     assets.load(asset_path!("missing_atlas.png"))
 }
 
-pub fn unset_texture(assets: &AssetServer) -> Handle<Image> {
-    assets.load(asset_path!("unset_texture.png"))
+pub fn reload_icon(assets: &AssetServer) -> Handle<Image> {
+    assets.load(asset_path!("icons/reload.png"))
+}
+
+pub fn unset_texture_icon(assets: &AssetServer) -> Handle<Image> {
+    assets.load(asset_path!("icons/unset_texture.png"))
 }

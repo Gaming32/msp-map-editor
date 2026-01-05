@@ -1,6 +1,6 @@
 use crate::TITLE;
 use crate::schema::{MapFile, MpsVec2, Textures};
-use crate::sync::MapSettingChanged;
+use crate::sync::MapEdit;
 use crate::ui::UiState;
 use bevy::image::{ImageFormatSetting, ImageLoaderSettings, ImageSampler};
 use bevy::prelude::*;
@@ -41,10 +41,10 @@ impl LoadedFile {
         }
     }
 
-    pub fn change_map_setting(&mut self, commands: &mut Commands, setting: MapSettingChanged) {
+    pub fn edit_map(&mut self, commands: &mut Commands, setting: MapEdit) {
         match &setting {
-            MapSettingChanged::StartingPosition(pos) => self.file.starting_tile = *pos,
-            MapSettingChanged::Skybox(index, image) => {
+            MapEdit::StartingPosition(pos) => self.file.starting_tile = *pos,
+            MapEdit::Skybox(index, image) => {
                 self.loaded_textures.skybox[*index] = image.clone();
             }
         }
