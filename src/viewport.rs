@@ -2,7 +2,7 @@ use crate::assets::{PlayerMarker, missing_atlas, missing_skybox, player};
 use crate::load_file::{FileLoaded, LoadedFile};
 use crate::mesh::{MapMeshMarker, mesh_map};
 use crate::schema::MpsVec2;
-use crate::sync::{EditObject, MapEdit, SelectForEditing};
+use crate::sync::{EditObject, MapEdit, MapEdited, SelectForEditing};
 use crate::{modifier_key, shortcut_pressed};
 use bevy::asset::io::embedded::GetAssetServer;
 use bevy::asset::{LoadState, RenderAssetUsages};
@@ -225,12 +225,12 @@ fn on_file_load(
 }
 
 fn on_map_setting_changed(
-    on: On<MapEdit>,
+    on: On<MapEdited>,
     file: Res<LoadedFile>,
     mut player: Query<(&mut Transform, &mut ViewportObject), With<PlayerMarker>>,
     mut textures: ResMut<ViewportState>,
 ) {
-    match on.event() {
+    match &on.0 {
         MapEdit::StartingPosition(pos) => {
             for (mut player, mut viewport_obj) in player.iter_mut() {
                 player.translation = get_player_pos(&file, *pos);

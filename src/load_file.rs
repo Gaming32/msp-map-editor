@@ -1,6 +1,6 @@
 use crate::TITLE;
 use crate::schema::{MapFile, MpsVec2, Textures};
-use crate::sync::MapEdit;
+use crate::sync::{MapEdit, MapEdited};
 use crate::ui::UiState;
 use bevy::image::{ImageFormatSetting, ImageLoaderSettings, ImageSampler};
 use bevy::prelude::*;
@@ -49,7 +49,7 @@ impl LoadedFile {
             }
         }
         self.mark_dirty(commands);
-        commands.trigger(setting);
+        commands.trigger(MapEdited(setting));
     }
 }
 

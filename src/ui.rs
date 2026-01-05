@@ -5,7 +5,7 @@ use crate::load_file::{
     save_file_as,
 };
 use crate::schema::{CubeMap, MpsVec2};
-use crate::sync::{EditObject, MapEdit, SelectForEditing};
+use crate::sync::{EditObject, MapEdit, MapEdited, SelectForEditing};
 use crate::viewport::ViewportTarget;
 use crate::{Directories, shortcut_pressed};
 use bevy::asset::LoadState;
@@ -127,8 +127,8 @@ fn on_file_loaded(
     }
 }
 
-fn on_map_setting_changed(on: On<MapEdit>, mut state: ResMut<UiState>) {
-    match on.event() {
+fn on_map_setting_changed(on: On<MapEdited>, mut state: ResMut<UiState>) {
+    match &on.0 {
         MapEdit::StartingPosition(pos) => state.starting_tile = *pos,
         MapEdit::Skybox(index, image) => {
             state.waiting_textures.push(SettingImageLoadWait {
@@ -339,7 +339,7 @@ fn draw_imgui(
                 if ui.image_button(format!("Reload {label}"), reload_icon, [16.0; 2]) {
                     let texture = &current_open_file.loaded_textures.skybox[index];
                     assets.reload(texture.path.clone());
-                    commands.trigger(MapEdit::Skybox(index, texture.clone()));
+                    commands.trigger(MapEdited(MapEdit::Skybox(index, texture.clone())));
                 }
                 ui.same_line();
                 ui.text(label);

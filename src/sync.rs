@@ -3,6 +3,9 @@ use crate::schema::{MpsVec2, MpsVec3};
 use bevy::prelude::Event;
 
 #[derive(Event, Clone, Debug)]
+pub struct MapEdited(pub MapEdit);
+
+#[derive(Clone, Debug)]
 pub enum MapEdit {
     StartingPosition(MpsVec2),
     Skybox(usize, LoadedTexture),
