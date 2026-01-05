@@ -2,13 +2,12 @@ use crate::assets::{PlayerMarker, missing_atlas, missing_skybox, player};
 use crate::load_file::{FileLoaded, LoadedFile};
 use crate::mesh::{MapMeshMarker, mesh_map};
 use crate::schema::MpsVec2;
-use crate::shortcut_pressed;
-use crate::sync::{MapSettingChanged, SelectForEditing};
+use crate::sync::{EditObject, MapSettingChanged, SelectForEditing};
+use crate::{modifier_key, shortcut_pressed};
 use bevy::asset::io::embedded::GetAssetServer;
 use bevy::asset::{LoadState, RenderAssetUsages};
 use bevy::camera::NormalizedRenderTarget;
 use bevy::core_pipeline::Skybox;
-use bevy::ecs::query::QueryFilter;
 use bevy::input::ButtonState;
 use bevy::input::mouse::MouseWheel;
 use bevy::picking::PickingSystems;
@@ -69,7 +68,7 @@ impl Plugin for ViewportPlugin {
             atlas: ViewportTextureSet::new(missing_atlas),
             atlas_material,
         })
-        .add_plugins((MapCameraPlugin, TransformGizmoPlugin))
+        .add_plugins((MapCameraPlugin, MeshPickingPlugin, TransformGizmoPlugin))
         .add_systems(
             First,
             custom_mouse_pick_events.in_set(PickingSystems::Input),
@@ -78,6 +77,7 @@ impl Plugin for ViewportPlugin {
         .add_observer(on_file_load)
         .add_observer(on_map_setting_changed)
         .add_observer(on_select_for_editing)
+        .add_observer(on_pointer_click)
         .add_systems(
             Update,
             (
@@ -169,8 +169,9 @@ fn setup_viewport(
     ));
 }
 
-#[derive(Component, Default)]
+#[derive(Component)]
 struct ViewportObject {
+    editor: EditObject,
     old_pos: Vec3,
     old_rot: Option<Quat>,
 }
@@ -203,6 +204,7 @@ fn on_file_load(
     commands.spawn((
         player(&assets, player_pos),
         ViewportObject {
+            editor: EditObject::StartingPosition,
             old_pos: player_pos,
             old_rot: None,
         },
@@ -248,8 +250,14 @@ fn on_select_for_editing(
     current_gizmos: Query<Entity, With<GizmoTarget>>,
     player: Query<Entity, With<PlayerMarker>>,
 ) {
-    match on.event() {
-        SelectForEditing::StartingPosition => {
+    if on.exclusive {
+        for gizmo in current_gizmos.iter() {
+            commands.entity(gizmo).remove::<GizmoTarget>();
+        }
+    }
+
+    match on.object {
+        EditObject::StartingPosition => {
             *gizmo_options = GizmoOptions {
                 gizmo_modes: GizmoMode::TranslateX | GizmoMode::TranslateZ | GizmoMode::TranslateXZ,
                 hotkeys: Some(GizmoHotkeys {
@@ -260,11 +268,11 @@ fn on_select_for_editing(
                 snapping: true,
                 ..*gizmo_options
             };
-            clear_all_gizmos(&mut commands, &current_gizmos);
             for player in player.iter() {
                 commands.entity(player).insert(GizmoTarget::default());
             }
         }
+        EditObject::None => {}
     }
 }
 
@@ -277,19 +285,33 @@ fn get_player_pos(file: &LoadedFile, pos: MpsVec2) -> Vec3 {
     Vec3::new(pos.x as f32, tile_y as f32 + 0.375, pos.y as f32)
 }
 
-fn keyboard_handler(
+fn on_pointer_click(
+    on: On<Pointer<Click>>,
+    objects: Query<&ViewportObject>,
+    _meshes: Query<(), With<MapMeshMarker>>,
     keys: Res<ButtonInput<KeyCode>>,
     mut commands: Commands,
-    current_gizmos: Query<Entity, With<GizmoTarget>>,
 ) {
-    if shortcut_pressed!(keys, Alt + KeyA) {
-        clear_all_gizmos(&mut commands, &current_gizmos);
+    if on.button != PointerButton::Primary {
+        return;
     }
+    commands.trigger(SelectForEditing {
+        object: if let Ok(object) = objects.get(on.entity) {
+            object.editor
+        } else {
+            // TODO: Support selecting mesh
+            return;
+        },
+        exclusive: !keys.any_pressed(modifier_key!(Shift)),
+    });
 }
 
-fn clear_all_gizmos<F: QueryFilter>(commands: &mut Commands, current_gizmos: &Query<Entity, F>) {
-    for gizmo in current_gizmos.iter() {
-        commands.entity(gizmo).remove::<GizmoTarget>();
+fn keyboard_handler(keys: Res<ButtonInput<KeyCode>>, mut commands: Commands) {
+    if shortcut_pressed!(keys, Alt + KeyA) {
+        commands.trigger(SelectForEditing {
+            object: EditObject::None,
+            exclusive: true,
+        })
     }
 }
 

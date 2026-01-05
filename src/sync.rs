@@ -9,8 +9,15 @@ pub enum MapSettingChanged {
 }
 
 #[derive(Event, Copy, Clone, Debug)]
-pub enum SelectForEditing {
+pub struct SelectForEditing {
+    pub object: EditObject,
+    pub exclusive: bool,
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum EditObject {
     StartingPosition,
+    None,
 }
 
 impl From<MpsVec2> for mint::Vector2<i32> {

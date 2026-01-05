@@ -5,7 +5,7 @@ use crate::load_file::{
     save_file_as,
 };
 use crate::schema::{CubeMap, MpsVec2};
-use crate::sync::{MapSettingChanged, SelectForEditing};
+use crate::sync::{EditObject, MapSettingChanged, SelectForEditing};
 use crate::viewport::ViewportTarget;
 use crate::{Directories, shortcut_pressed};
 use bevy::asset::LoadState;
@@ -296,7 +296,10 @@ fn draw_imgui(
         ui.text("Starting tile");
         ui.same_line();
         if ui.button("Select") {
-            commands.trigger(SelectForEditing::StartingPosition);
+            commands.trigger(SelectForEditing {
+                object: EditObject::StartingPosition,
+                exclusive: true,
+            });
         }
         if ui.input_int2("", &mut state.starting_tile).build() {
             let pos = current_open_file.in_bounds(state.starting_tile);
