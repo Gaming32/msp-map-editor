@@ -447,7 +447,12 @@ fn update_textures(
     }
 
     if textures.atlas.outdated {
-        textures.atlas.current = file.loaded_textures.atlas.image.clone();
+        let image = &file.loaded_textures.atlas.image;
+        textures.atlas.current = if *image == Handle::default() {
+            textures.atlas.missing.clone()
+        } else {
+            image.clone()
+        };
         materials
             .get_mut(&textures.atlas_material)
             .expect("atlas_material should exist")
