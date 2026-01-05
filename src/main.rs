@@ -3,6 +3,7 @@
 mod assets;
 mod docking;
 mod load_file;
+mod mesh;
 mod schema;
 mod shortcuts;
 mod sync;

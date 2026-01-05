@@ -1,5 +1,6 @@
 use crate::assets::{PlayerMarker, missing_atlas, missing_skybox, player};
 use crate::load_file::{FileLoaded, LoadedFile};
+use crate::mesh::{MapMeshMarker, mesh_map};
 use crate::schema::MpsVec2;
 use crate::shortcut_pressed;
 use crate::sync::{MapSettingChanged, SelectForEditing};
@@ -23,7 +24,8 @@ use bevy_map_camera::controller::CameraControllerButtons;
 use bevy_map_camera::{CameraControllerSettings, LookTransform, MapCamera, MapCameraPlugin};
 use image::imageops::FilterType;
 use image::{DynamicImage, GenericImageView, RgbaImage};
-use std::f32::consts::PI;
+use std::f32::consts::{FRAC_PI_2, PI};
+use std::time::Instant;
 use transform_gizmo_bevy::GizmoHotkeys;
 use transform_gizmo_bevy::prelude::*;
 
@@ -48,15 +50,24 @@ impl Plugin for ViewportPlugin {
                 ));
         let missing_skybox = missing_skybox(app.get_asset_server());
         let missing_atlas = missing_atlas(app.get_asset_server());
+        let atlas_material = app
+            .world_mut()
+            .resource_mut::<Assets<StandardMaterial>>()
+            .add(StandardMaterial {
+                base_color_texture: Some(missing_atlas.clone()),
+                perceptual_roughness: 1.0,
+                ..Default::default()
+            });
 
         app.insert_resource(ViewportTarget {
             texture: render_texture,
             upper_left: Vec2::default(),
             size: Vec2::new(1.0, 1.0),
         })
-        .insert_resource(ViewportTextures {
+        .insert_resource(ViewportState {
             skybox: ViewportTextureSet::new(missing_skybox),
             atlas: ViewportTextureSet::new(missing_atlas),
+            atlas_material,
         })
         .add_plugins((MapCameraPlugin, TransformGizmoPlugin))
         .add_systems(
@@ -81,9 +92,10 @@ impl Plugin for ViewportPlugin {
 }
 
 #[derive(Resource)]
-struct ViewportTextures {
+struct ViewportState {
     skybox: ViewportTextureSet,
     atlas: ViewportTextureSet,
+    atlas_material: Handle<StandardMaterial>,
 }
 
 struct ViewportTextureSet {
@@ -105,7 +117,7 @@ impl ViewportTextureSet {
 fn setup_viewport(
     mut commands: Commands,
     viewport_target: Res<ViewportTarget>,
-    textures: Res<ViewportTextures>,
+    textures: Res<ViewportState>,
 ) {
     commands.insert_resource(CameraControllerSettings {
         touch_enabled: false, // XXX: touch pick events are not implemented, so touch wouldn't work anyway. Maybe I should fix this.
@@ -134,6 +146,14 @@ fn setup_viewport(
             brightness: 400.0, // Nits
             rotation: Quat::IDENTITY,
         },
+        SpotLight {
+            range: 500.0,
+            radius: 500.0,
+            intensity: 250_000.0,
+            outer_angle: FRAC_PI_2,
+            inner_angle: FRAC_PI_2,
+            ..Default::default()
+        },
         MapCamera,
         GizmoCamera,
         LookTransform::default(),
@@ -143,34 +163,41 @@ fn setup_viewport(
         LookTransform::default(),
         DirectionalLight {
             shadows_enabled: true,
+            illuminance: 4000.0,
             ..Default::default()
         },
     ));
 }
 
-#[derive(Component)]
+#[derive(Component, Default)]
 struct ViewportObject {
     old_pos: Vec3,
     old_rot: Option<Quat>,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn on_file_load(
     _: On<FileLoaded>,
     mut commands: Commands,
-    objects: Query<Entity, With<ViewportObject>>,
+    objects: Query<Entity, Or<(With<ViewportObject>, With<MapMeshMarker>)>>,
     mut camera: Query<(&mut LookTransform, &mut Skybox), With<Camera>>,
-    mut textures: ResMut<ViewportTextures>,
+    mut state: ResMut<ViewportState>,
     assets: Res<AssetServer>,
     file: Res<LoadedFile>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     for existing in objects.iter() {
         commands.entity(existing).despawn();
     }
 
-    textures.skybox.current = textures.skybox.missing.clone();
-    textures.skybox.outdated = true;
-    textures.atlas.current = file.loaded_textures.atlas.image.clone();
-    textures.atlas.outdated = false;
+    state.skybox.current = state.skybox.missing.clone();
+    state.skybox.outdated = true;
+    state.atlas.current = file.loaded_textures.atlas.image.clone();
+    state.atlas.outdated = false;
+    materials
+        .get_mut(&state.atlas_material)
+        .expect("atlas_material should've been inserted")
+        .base_color_texture = Some(state.atlas.current.clone());
 
     let player_pos = get_player_pos(&file, file.file.starting_tile);
     commands.spawn((
@@ -183,15 +210,23 @@ fn on_file_load(
     for (mut camera, mut skybox) in camera.iter_mut() {
         camera.eye = player_pos + Vec3::new(0.0, 4.0, 8.0);
         camera.target = player_pos;
-        skybox.image = textures.skybox.current.clone();
+        skybox.image = state.skybox.current.clone();
     }
+
+    let start = Instant::now();
+    commands.spawn(mesh_map(
+        &file.file.data,
+        state.atlas_material.clone(),
+        &assets,
+    ));
+    info!("Took {:?} to mesh", start.elapsed());
 }
 
 fn on_map_setting_changed(
     on: On<MapSettingChanged>,
     file: Res<LoadedFile>,
     mut player: Query<(&mut Transform, &mut ViewportObject), With<PlayerMarker>>,
-    mut textures: ResMut<ViewportTextures>,
+    mut textures: ResMut<ViewportState>,
 ) {
     match on.event() {
         MapSettingChanged::StartingPosition(pos) => {
@@ -237,7 +272,7 @@ fn get_player_pos(file: &LoadedFile, pos: MpsVec2) -> Vec3 {
     let tile_y = file
         .file
         .data
-        .get(pos.x, pos.y)
+        .get(pos.y, pos.x)
         .map_or(0.0, |tile| tile.height.center_height());
     Vec3::new(pos.x as f32, tile_y as f32 + 0.375, pos.y as f32)
 }
@@ -303,7 +338,7 @@ fn update_lights(
 }
 
 fn update_textures(
-    mut textures: ResMut<ViewportTextures>,
+    mut textures: ResMut<ViewportState>,
     mut skybox: Query<&mut Skybox>,
     file: Res<LoadedFile>,
     assets: Res<AssetServer>,

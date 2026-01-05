@@ -1,8 +1,8 @@
 use crate::assets::unset_texture;
 use crate::docking::UiDocking;
 use crate::load_file::{
-    FileLoaded, GUESS_IMAGE_FORMAT, LoadedFile, LoadedTexture, MapFileDialog, new_file, open_file,
-    save_file, save_file_as,
+    FileLoaded, LoadedFile, LoadedTexture, MapFileDialog, new_file, open_file, save_file,
+    save_file_as,
 };
 use crate::schema::{CubeMap, MpsVec2};
 use crate::sync::{MapSettingChanged, SelectForEditing};
@@ -10,6 +10,7 @@ use crate::viewport::ViewportTarget;
 use crate::{Directories, shortcut_pressed};
 use bevy::asset::LoadState;
 use bevy::asset::io::embedded::GetAssetServer;
+use bevy::image::{ImageFormatSetting, ImageLoaderSettings};
 use bevy::prelude::Image as BevyImage;
 use bevy::prelude::*;
 use bevy::render::render_resource::Extent3d;
@@ -142,7 +143,12 @@ fn setting_image_picked(
     mut file: ResMut<LoadedFile>,
 ) {
     for picked in files.read() {
-        let image = assets.load_with_settings_override(picked.path.clone(), GUESS_IMAGE_FORMAT);
+        let image = assets.load_with_settings_override(picked.path.clone(), |settings| {
+            *settings = ImageLoaderSettings {
+                format: ImageFormatSetting::Guess,
+                ..Default::default()
+            };
+        });
         match picked.data {
             SettingImagePick::Skybox(index) => file.change_map_setting(
                 &mut commands,

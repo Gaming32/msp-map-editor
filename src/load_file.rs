@@ -2,7 +2,7 @@ use crate::TITLE;
 use crate::schema::{MapFile, MpsVec2, Textures};
 use crate::sync::MapSettingChanged;
 use crate::ui::UiState;
-use bevy::image::{ImageFormatSetting, ImageLoaderSettings};
+use bevy::image::{ImageFormatSetting, ImageLoaderSettings, ImageSampler};
 use bevy::prelude::*;
 use bevy::tasks::AsyncComputeTaskPool;
 use bevy::window::PrimaryWindow;
@@ -75,13 +75,6 @@ impl Plugin for LoadFilePlugin {
 pub struct FileLoaded;
 
 pub(super) struct MapFileDialog;
-
-pub const GUESS_IMAGE_FORMAT: fn(&mut ImageLoaderSettings) = |settings| {
-    *settings = ImageLoaderSettings {
-        format: ImageFormatSetting::Guess,
-        ..Default::default()
-    };
-};
 
 pub fn new_file(ui_state: &mut UiState) {
     ui_state.request_close_file(|commands, open_file| {
@@ -236,17 +229,28 @@ fn handle_load(
     };
     open_file.dirty = false;
 
-    let load_texture = |path: &RelativePathBuf| {
+    let load_texture = |path: &RelativePathBuf, sampler: ImageSampler| {
         let path = path.to_path(root_dir);
         LoadedTexture {
             path: path.clone(),
-            image: assets.load_with_settings_override(path, GUESS_IMAGE_FORMAT),
+            image: assets.load_with_settings_override(path, move |settings| {
+                *settings = ImageLoaderSettings {
+                    format: ImageFormatSetting::Guess,
+                    sampler: sampler.clone(),
+                    ..Default::default()
+                };
+            }),
         }
     };
 
     open_file.loaded_textures = Textures {
-        skybox: open_file.file.textures.skybox.each_ref().map(load_texture),
-        atlas: load_texture(&open_file.file.textures.atlas),
+        skybox: open_file
+            .file
+            .textures
+            .skybox
+            .each_ref()
+            .map(|path| load_texture(path, ImageSampler::Default)),
+        atlas: load_texture(&open_file.file.textures.atlas, ImageSampler::nearest()),
     };
 
     open_file.path = Some(path);

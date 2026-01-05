@@ -157,7 +157,13 @@ pub struct TileData {
     pub silver_star_spawnable: bool,
 }
 
-#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+impl TileData {
+    pub fn ramp(&self) -> bool {
+        matches!(self.height, TileHeight::Ramp { .. })
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum TileHeight {
     Flat {
@@ -180,15 +186,29 @@ impl Default for TileHeight {
 }
 
 impl TileHeight {
-    pub fn center_height(&self) -> f64 {
+    pub fn center_height(self) -> f64 {
         match self {
-            Self::Flat { height, .. } => *height,
-            Self::Ramp { height, .. } => (height.pos + height.neg) / 2.0,
+            Self::Flat { height, .. } => height,
+            Self::Ramp { height, .. } => (height.pos - height.neg) / 2.0 + height.neg,
+        }
+    }
+
+    pub fn min_height(self) -> f64 {
+        match self {
+            Self::Flat { height, .. } => height,
+            Self::Ramp { height, .. } => height.pos.min(height.neg),
+        }
+    }
+
+    pub fn equals_flat(self, other: f64) -> bool {
+        self == Self::Flat {
+            ramp: MustBeBool,
+            height: other,
         }
     }
 }
 
-#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TileRamp {
     pub dir: TileRampDirection,
     pub pos: f64,
@@ -215,23 +235,29 @@ pub struct ConnectionMap {
     pub west: Connection,
 }
 
-#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Connection {
     Unconditional(bool),
     Conditional(ConnectionCondition),
 }
 
-#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum ConnectionCondition {
-    Lock,
-}
-
 impl Default for Connection {
     fn default() -> Self {
         Self::Unconditional(false)
     }
+}
+
+impl Connection {
+    pub fn impassible(self) -> bool {
+        self == Self::Unconditional(false)
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ConnectionCondition {
+    Lock,
 }
 
 #[serde_as]
@@ -272,15 +298,18 @@ type AtlasCoordValue = u8;
 const ATLAS_SIZE: (AtlasCoordValue, AtlasCoordValue) = (16, 16);
 
 impl MpsMaterial {
+    pub const U_INCREMENT: f32 = 1.0 / ATLAS_SIZE.0 as f32;
+    pub const V_INCREMENT: f32 = 1.0 / ATLAS_SIZE.1 as f32;
+
     /// Return value: `(u1, v1, u2, v2)`
     pub fn to_uv_coords(self) -> (f32, f32, f32, f32) {
         let u = (self.0 % ATLAS_SIZE.0) as f32 / ATLAS_SIZE.0 as f32;
         let v = (ATLAS_SIZE.1 - 1 - self.0 / ATLAS_SIZE.0) as f32 / ATLAS_SIZE.1 as f32;
         (
-            u,
-            v,
-            u + 1.0 / ATLAS_SIZE.0 as f32,
-            v + 1.0 / ATLAS_SIZE.1 as f32,
+            u + 0.001,
+            v + 0.001,
+            u + Self::U_INCREMENT - 0.001,
+            v + Self::V_INCREMENT - 0.001,
         )
     }
 

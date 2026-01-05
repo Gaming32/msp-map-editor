@@ -85,7 +85,7 @@ pub fn star(assets: &AssetServer, position: Vec3) -> impl Bundle {
 pub fn player(assets: &AssetServer, position: Vec3) -> impl Bundle {
     (
         PlayerMarker,
-        Mesh3d(assets.add(Plane3d::new(Vec3::Z, Vec2::new(0.6, 0.75)).into())),
+        Mesh3d(assets.add(Plane3d::new(Vec3::Z, Vec2::new(0.6, 0.75) / 2.0).into())),
         MeshMaterial3d(assets.add(StandardMaterial {
             base_color_texture: Some(assets.load(asset_path!("player.png"))),
             alpha_mode: AlphaMode::Mask(0.5),
