@@ -1,14 +1,20 @@
+use crate::assets::unset_texture;
 use crate::docking::UiDocking;
-use crate::load_file::{FileLoaded, LoadedFile, new_file, open_file, save_file, save_file_as};
-use crate::schema::{MapFile, MpsVec2};
+use crate::load_file::{
+    FileLoaded, GUESS_IMAGE_FORMAT, LoadedFile, LoadedTexture, MapFileDialog, new_file, open_file,
+    save_file, save_file_as,
+};
+use crate::schema::{CubeMap, MpsVec2};
 use crate::sync::{MapSettingChanged, SelectForEditing};
 use crate::viewport::ViewportTarget;
 use crate::{Directories, shortcut_pressed};
+use bevy::asset::LoadState;
+use bevy::asset::io::embedded::GetAssetServer;
 use bevy::prelude::Image as BevyImage;
 use bevy::prelude::*;
 use bevy::render::render_resource::Extent3d;
 use bevy::window::{PrimaryWindow, WindowCloseRequested};
-use bevy_file_dialog::prelude::*;
+use bevy_file_dialog::{DialogFilePicked, FileDialogExt, FileDialogPlugin};
 use bevy_mod_imgui::prelude::*;
 use imgui::Image as ImguiImage;
 use std::mem;
@@ -18,8 +24,6 @@ pub struct MapEditorUi;
 
 impl Plugin for MapEditorUi {
     fn build(&self, app: &mut App) {
-        app.world().resource::<Directories>();
-
         let mut imgui_plugin = ImguiPlugin::default();
         if let Some(dirs) = app.world().get_resource::<Directories>() {
             imgui_plugin.ini_filename = Some(dirs.data.join("imgui.ini"));
@@ -27,13 +31,15 @@ impl Plugin for MapEditorUi {
 
         app.insert_resource(UiState {
             free_timer: Timer::new(Duration::from_millis(500), TimerMode::Repeating),
+            unset_texture: unset_texture(app.get_asset_server()),
             ..Default::default()
         })
         .add_plugins((
             imgui_plugin,
             FileDialogPlugin::new()
-                .with_load_file::<MapFile>()
-                .with_save_file::<MapFile>(),
+                .with_pick_file::<SettingImagePick>()
+                .with_load_file::<MapFileDialog>()
+                .with_save_file::<MapFileDialog>(),
         ))
         .add_systems(Startup, |mut imgui: NonSendMut<ImguiContext>| {
             imgui.with_io_mut(|io| {
@@ -42,7 +48,15 @@ impl Plugin for MapEditorUi {
         })
         .add_observer(on_file_loaded)
         .add_observer(on_map_setting_changed)
-        .add_systems(Update, (draw_imgui, keyboard_handler, close_handler));
+        .add_systems(
+            Update,
+            (
+                setting_image_picked,
+                draw_imgui,
+                keyboard_handler,
+                close_handler,
+            ),
+        );
     }
 }
 
@@ -54,6 +68,18 @@ pub struct UiState {
     free_timer: Timer,
     pending_close_state: PendingCloseState,
     starting_tile: MpsVec2,
+    skybox_textures: Option<CubeMap<TextureId>>,
+    unset_texture: Handle<BevyImage>,
+    waiting_textures: Vec<SettingImageLoadWait>,
+}
+
+impl UiState {
+    pub fn request_close_file(
+        &mut self,
+        action: impl FnOnce(&mut Commands, &mut LoadedFile) + Send + Sync + 'static,
+    ) {
+        self.pending_close_state = PendingCloseState::PendingUi(Box::new(action));
+    }
 }
 
 type BoxedCloseHandler = Box<dyn FnOnce(&mut Commands, &mut LoadedFile) + Send + Sync>;
@@ -67,22 +93,68 @@ enum PendingCloseState {
     Confirmed(BoxedCloseHandler),
 }
 
-impl UiState {
-    pub fn request_close_file(
-        &mut self,
-        action: impl FnOnce(&mut Commands, &mut LoadedFile) + Send + Sync + 'static,
-    ) {
-        self.pending_close_state = PendingCloseState::PendingUi(Box::new(action));
+#[derive(Copy, Clone)]
+enum SettingImagePick {
+    Skybox(usize),
+}
+
+struct SettingImageLoadWait {
+    image: Handle<BevyImage>,
+    pick: SettingImagePick,
+}
+
+fn on_file_loaded(
+    _: On<FileLoaded>,
+    file: Res<LoadedFile>,
+    mut state: ResMut<UiState>,
+    mut context: NonSendMut<ImguiContext>,
+) {
+    state.starting_tile = file.file.starting_tile;
+
+    let new_skybox_textures = file.loaded_textures.skybox.each_ref().map(|tex| {
+        context.register_bevy_texture(if tex.image != Handle::default() {
+            tex.image.clone()
+        } else {
+            state.unset_texture.clone()
+        })
+    });
+    if let Some(old_textures) = state.skybox_textures.replace(new_skybox_textures) {
+        state.textures_to_free.extend(old_textures);
     }
 }
 
-fn on_file_loaded(_: On<FileLoaded>, file: Res<LoadedFile>, mut state: ResMut<UiState>) {
-    state.starting_tile = file.file.starting_tile;
+fn on_map_setting_changed(on: On<MapSettingChanged>, mut state: ResMut<UiState>) {
+    match on.event() {
+        MapSettingChanged::StartingPosition(pos) => state.starting_tile = *pos,
+        MapSettingChanged::Skybox(index, image) => {
+            state.waiting_textures.push(SettingImageLoadWait {
+                image: image.image.clone(),
+                pick: SettingImagePick::Skybox(*index),
+            });
+        }
+    }
 }
 
-fn on_map_setting_changed(on: On<MapSettingChanged>, mut res: ResMut<UiState>) {
-    match on.event() {
-        MapSettingChanged::StartingPosition(pos) => res.starting_tile = *pos,
+fn setting_image_picked(
+    mut files: MessageReader<DialogFilePicked<SettingImagePick>>,
+    assets: Res<AssetServer>,
+    mut commands: Commands,
+    mut file: ResMut<LoadedFile>,
+) {
+    for picked in files.read() {
+        let image = assets.load_with_settings_override(picked.path.clone(), GUESS_IMAGE_FORMAT);
+        match picked.data {
+            SettingImagePick::Skybox(index) => file.change_map_setting(
+                &mut commands,
+                MapSettingChanged::Skybox(
+                    index,
+                    LoadedTexture {
+                        path: picked.path.clone(),
+                        image,
+                    },
+                ),
+            ),
+        }
     }
 }
 
@@ -99,11 +171,35 @@ fn draw_imgui(
     window_query: Query<Entity, With<PrimaryWindow>>,
     mut viewport_target: ResMut<ViewportTarget>,
     mut images: ResMut<Assets<BevyImage>>,
+    assets: Res<AssetServer>,
 ) {
     if state.viewport_texture.is_none() {
         state.viewport_texture =
             Some(context.register_bevy_texture(viewport_target.texture.clone()));
     }
+
+    let mut skybox_textures = state.skybox_textures;
+    let mut removed_textures = vec![];
+    state
+        .waiting_textures
+        .retain(|texture| match assets.load_state(&texture.image) {
+            LoadState::Loaded => {
+                let image_id = context.register_bevy_texture(texture.image.clone());
+                match texture.pick {
+                    SettingImagePick::Skybox(index) => {
+                        let skybox_textures = skybox_textures
+                            .as_mut()
+                            .expect("skybox_textures should be assigned by now");
+                        removed_textures.push(mem::replace(&mut skybox_textures[index], image_id));
+                    }
+                }
+                false
+            }
+            LoadState::Failed(_) => false,
+            _ => true,
+        });
+    state.skybox_textures = skybox_textures;
+    state.textures_to_free.extend(removed_textures);
 
     state.free_timer.tick(time.delta());
     if state.free_timer.just_finished() && !state.textures_to_free.is_empty() {
@@ -197,9 +293,32 @@ fn draw_imgui(
             commands.trigger(SelectForEditing::StartingPosition);
         }
         if ui.input_int2("", &mut state.starting_tile).build() {
-            commands.trigger(MapSettingChanged::StartingPosition(
-                current_open_file.in_bounds(state.starting_tile),
-            ));
+            let pos = current_open_file.in_bounds(state.starting_tile);
+            current_open_file
+                .change_map_setting(&mut commands, MapSettingChanged::StartingPosition(pos));
+        }
+
+        ui.spacing();
+
+        const SUPPORTED_IMAGE_EXTENSIONS: &[&str] = &[
+            "bmp", "gif", "hdr", "ico", "jpg", "jpeg", "ktx2", "png", "tif", "tiff", "webp",
+        ];
+
+        if let Some(skybox) = state.skybox_textures
+            && let Some(_token) = ui.tree_node_config("Skybox").framed(true).push()
+        {
+            const LABELS: CubeMap<&str> = ["Right", "Left", "Up", "Down", "Front", "Back"];
+            for (index, (label, texture)) in LABELS.iter().zip(skybox.iter()).enumerate() {
+                if ui.image_button(label, *texture, [64.0; 2]) {
+                    commands
+                        .dialog()
+                        .set_title("Choose skybox file")
+                        .add_filter("Skybox images", SUPPORTED_IMAGE_EXTENSIONS)
+                        .pick_file_path(SettingImagePick::Skybox(index));
+                }
+                ui.same_line();
+                ui.text(label);
+            }
         }
     });
 

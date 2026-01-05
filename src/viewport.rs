@@ -1,4 +1,4 @@
-use crate::assets::{missing_atlas, missing_skybox, player, PlayerMarker};
+use crate::assets::{PlayerMarker, missing_atlas, missing_skybox, player};
 use crate::load_file::{FileLoaded, LoadedFile};
 use crate::schema::MpsVec2;
 use crate::shortcut_pressed;
@@ -8,10 +8,10 @@ use bevy::asset::{LoadState, RenderAssetUsages};
 use bevy::camera::NormalizedRenderTarget;
 use bevy::core_pipeline::Skybox;
 use bevy::ecs::query::QueryFilter;
-use bevy::input::mouse::MouseWheel;
 use bevy::input::ButtonState;
-use bevy::picking::pointer::{Location, PointerAction, PointerId, PointerInput};
+use bevy::input::mouse::MouseWheel;
 use bevy::picking::PickingSystems;
+use bevy::picking::pointer::{Location, PointerAction, PointerId, PointerInput};
 use bevy::prelude::Rect;
 use bevy::prelude::*;
 use bevy::render::render_resource::{
@@ -22,10 +22,10 @@ use bevy::window::WindowEvent;
 use bevy_map_camera::controller::CameraControllerButtons;
 use bevy_map_camera::{CameraControllerSettings, LookTransform, MapCamera, MapCameraPlugin};
 use image::imageops::FilterType;
-use image::{DynamicImage, RgbaImage};
+use image::{DynamicImage, GenericImageView, RgbaImage};
 use std::f32::consts::PI;
-use transform_gizmo_bevy::prelude::*;
 use transform_gizmo_bevy::GizmoHotkeys;
+use transform_gizmo_bevy::prelude::*;
 
 #[derive(Resource)]
 pub struct ViewportTarget {
@@ -191,6 +191,7 @@ fn on_map_setting_changed(
     on: On<MapSettingChanged>,
     file: Res<LoadedFile>,
     mut player: Query<(&mut Transform, &mut ViewportObject), With<PlayerMarker>>,
+    mut textures: ResMut<ViewportTextures>,
 ) {
     match on.event() {
         MapSettingChanged::StartingPosition(pos) => {
@@ -198,6 +199,9 @@ fn on_map_setting_changed(
                 player.translation = get_player_pos(&file, *pos);
                 viewport_obj.old_pos = player.translation;
             }
+        }
+        MapSettingChanged::Skybox(_, _) => {
+            textures.skybox.outdated = true;
         }
     }
 }
@@ -263,15 +267,17 @@ fn update_gizmos(mut options: ResMut<GizmoOptions>, viewport: Res<ViewportTarget
 
 fn sync_from_gizmos(
     mut commands: Commands,
-    file: Res<LoadedFile>,
+    mut file: ResMut<LoadedFile>,
     mut player: Query<(&Transform, &mut ViewportObject), (With<PlayerMarker>, With<GizmoTarget>)>,
 ) {
     for (player_transform, mut old_transform) in player.iter_mut() {
         let pos = player_transform.translation;
         if pos != old_transform.old_pos {
-            commands.trigger(MapSettingChanged::StartingPosition(
-                file.in_bounds(MpsVec2::new(pos.x as i32, pos.z as i32)),
-            ));
+            let in_bounds_pos = file.in_bounds(MpsVec2::new(pos.x as i32, pos.z as i32));
+            file.change_map_setting(
+                &mut commands,
+                MapSettingChanged::StartingPosition(in_bounds_pos),
+            );
             old_transform.old_pos = pos;
         }
     }
@@ -306,10 +312,11 @@ fn update_textures(
     if textures.skybox.outdated
         && let Some(fallback) = images.get(&textures.skybox.missing)
         && file.loaded_textures.skybox.iter().all(|x| {
-            matches!(
-                assets.load_state(&x.image),
-                LoadState::Loaded | LoadState::Failed(_)
-            )
+            x.image == Handle::default()
+                || matches!(
+                    assets.load_state(&x.image),
+                    LoadState::Loaded | LoadState::Failed(_)
+                )
         })
     {
         assert_eq!(fallback.data_order, TextureDataOrder::MipMajor);
@@ -320,11 +327,11 @@ fn update_textures(
         let fallback_data = fallback.data.as_ref().expect("Fallback skybox not on CPU");
         let fallback_stride = fallback.width() as usize * fallback.height() as usize * 4;
 
-        let images = file
-            .loaded_textures
-            .skybox
-            .each_ref()
-            .map(|x| images.get(&x.image));
+        let images = file.loaded_textures.skybox.each_ref().map(|x| {
+            (x.image != Handle::default())
+                .then(|| images.get(&x.image))
+                .flatten()
+        });
         let biggest = images
             .iter()
             .filter_map(|x| x.map(|x| x.width().max(x.height())))
@@ -346,10 +353,14 @@ fn update_textures(
                             .unwrap(),
                         )
                     });
-                result.extend_from_slice(
-                    &image
-                        .resize_exact(size, size, FilterType::Triangle)
-                        .into_rgba8(),
+                result.extend(
+                    if image.dimensions() == (size, size) {
+                        image
+                    } else {
+                        image.resize_exact(size, size, FilterType::Triangle)
+                    }
+                    .into_rgba8()
+                    .into_raw(),
                 );
             }
             let mut image = Image::new(

@@ -2,6 +2,7 @@ use crate::TITLE;
 use crate::schema::{MapFile, MpsVec2, Textures};
 use crate::sync::MapSettingChanged;
 use crate::ui::UiState;
+use bevy::image::{ImageFormatSetting, ImageLoaderSettings};
 use bevy::prelude::*;
 use bevy::tasks::AsyncComputeTaskPool;
 use bevy::window::PrimaryWindow;
@@ -25,7 +26,7 @@ pub struct LoadedFile {
 }
 
 impl LoadedFile {
-    pub fn mark_dirty(&mut self, commands: &mut Commands) {
+    fn mark_dirty(&mut self, commands: &mut Commands) {
         if !self.dirty {
             self.dirty = true;
             commands.write_message(UpdateHeader);
@@ -39,9 +40,20 @@ impl LoadedFile {
             pos
         }
     }
+
+    pub fn change_map_setting(&mut self, commands: &mut Commands, setting: MapSettingChanged) {
+        match &setting {
+            MapSettingChanged::StartingPosition(pos) => self.file.starting_tile = *pos,
+            MapSettingChanged::Skybox(index, image) => {
+                self.loaded_textures.skybox[*index] = image.clone();
+            }
+        }
+        self.mark_dirty(commands);
+        commands.trigger(setting);
+    }
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct LoadedTexture {
     pub path: PathBuf,
     pub image: Handle<Image>,
@@ -54,7 +66,6 @@ impl Plugin for LoadFilePlugin {
         app.init_resource::<LoadedFile>()
             .add_message::<FileSaved>()
             .add_message::<UpdateHeader>()
-            .add_observer(on_map_setting_changed)
             .add_systems(PostStartup, initial_open_file)
             .add_systems(Update, file_state_handler);
     }
@@ -62,6 +73,15 @@ impl Plugin for LoadFilePlugin {
 
 #[derive(Event, Default)]
 pub struct FileLoaded;
+
+pub(super) struct MapFileDialog;
+
+pub const GUESS_IMAGE_FORMAT: fn(&mut ImageLoaderSettings) = |settings| {
+    *settings = ImageLoaderSettings {
+        format: ImageFormatSetting::Guess,
+        ..Default::default()
+    };
+};
 
 pub fn new_file(ui_state: &mut UiState) {
     ui_state.request_close_file(|commands, open_file| {
@@ -77,7 +97,7 @@ pub fn open_file(ui_state: &mut UiState) {
             .dialog()
             .set_title("Open MSP map file")
             .add_filter("MSP map files", &["json"])
-            .load_file::<MapFile>();
+            .load_file(MapFileDialog);
     });
 }
 
@@ -104,7 +124,7 @@ pub fn save_file_as(commands: &mut Commands) {
         .dialog()
         .set_title("Save MSP map file")
         .add_filter("MSP map files", &["json"])
-        .save_file::<MapFile>(vec![]);
+        .save_file(vec![], MapFileDialog);
 }
 
 #[derive(Message)]
@@ -115,17 +135,6 @@ struct FileSaved {
 
 #[derive(Message, Default)]
 struct UpdateHeader;
-
-fn on_map_setting_changed(
-    on: On<MapSettingChanged>,
-    mut open_file: ResMut<LoadedFile>,
-    mut commands: Commands,
-) {
-    match on.event() {
-        MapSettingChanged::StartingPosition(pos) => open_file.file.starting_tile = *pos,
-    }
-    open_file.mark_dirty(&mut commands);
-}
 
 fn initial_open_file(
     mut open_file: ResMut<LoadedFile>,
@@ -153,9 +162,9 @@ fn initial_open_file(
 
 #[allow(clippy::too_many_arguments)]
 fn file_state_handler(
-    mut loaded_reader: MessageReader<DialogFileLoaded<MapFile>>,
+    mut loaded_reader: MessageReader<DialogFileLoaded<MapFileDialog>>,
     mut saved_reader: MessageReader<FileSaved>,
-    mut saved_as_reader: MessageReader<DialogFileSaved<MapFile>>,
+    mut saved_as_reader: MessageReader<DialogFileSaved<MapFileDialog>>,
     mut update_header_reader: MessageReader<UpdateHeader>,
     mut commands: Commands,
     mut open_file: ResMut<LoadedFile>,
@@ -231,7 +240,7 @@ fn handle_load(
         let path = path.to_path(root_dir);
         LoadedTexture {
             path: path.clone(),
-            image: assets.load_override(path),
+            image: assets.load_with_settings_override(path, GUESS_IMAGE_FORMAT),
         }
     };
 

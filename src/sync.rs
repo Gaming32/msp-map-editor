@@ -1,9 +1,11 @@
+use crate::load_file::LoadedTexture;
 use crate::schema::{MpsVec2, MpsVec3};
 use bevy::prelude::Event;
 
-#[derive(Event, Copy, Clone, Debug)]
+#[derive(Event, Clone, Debug)]
 pub enum MapSettingChanged {
     StartingPosition(MpsVec2),
+    Skybox(usize, LoadedTexture),
 }
 
 #[derive(Event, Copy, Clone, Debug)]
