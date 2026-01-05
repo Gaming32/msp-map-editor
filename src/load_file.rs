@@ -42,6 +42,7 @@ impl LoadedFile {
             MapEdit::Skybox(index, _) => {
                 MapEdit::Skybox(index, self.loaded_textures.skybox[index].clone())
             }
+            MapEdit::Atlas(_) => MapEdit::Atlas(self.loaded_textures.atlas.clone()),
         };
         if edit == reversed {
             return;
@@ -76,6 +77,9 @@ impl LoadedFile {
             MapEdit::StartingPosition(pos) => self.file.starting_tile = *pos,
             MapEdit::Skybox(index, image) => {
                 self.loaded_textures.skybox[*index] = image.clone();
+            }
+            MapEdit::Atlas(image) => {
+                self.loaded_textures.atlas = image.clone();
             }
         }
         if !self.dirty {
@@ -301,6 +305,8 @@ fn handle_load(
     };
 
     open_file.path = Some(path);
+    open_file.history.clear();
+    open_file.history_index = 0;
     true
 }
 

@@ -42,7 +42,6 @@ impl Plugin for EmbeddedAssetsPlugin {
         embedded_asset!("assets/objects/key_gate.glb");
         embedded_asset!("assets/objects/star.glb");
 
-        embedded_asset!("assets/missing_atlas.png" with meta);
         embedded_asset!("assets/missing_skybox.ktx2");
         embedded_asset!("assets/player.png" with meta);
     }

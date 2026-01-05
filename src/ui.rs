@@ -71,10 +71,11 @@ pub struct UiState {
     pending_close_state: PendingCloseState,
     starting_tile: MpsVec2,
     skybox_textures: Option<CubeMap<TextureId>>,
+    atlas_texture: Option<TextureId>,
+    waiting_textures: Vec<SettingImageLoadWait>,
     unset_texture_icon: Handle<BevyImage>,
     reload_icon_handle: Handle<BevyImage>,
     reload_icon: Option<TextureId>,
-    waiting_textures: Vec<SettingImageLoadWait>,
 }
 
 impl UiState {
@@ -100,6 +101,7 @@ enum PendingCloseState {
 #[derive(Copy, Clone)]
 enum SettingImagePick {
     Skybox(usize),
+    Atlas,
 }
 
 struct SettingImageLoadWait {
@@ -125,6 +127,16 @@ fn on_file_loaded(
     if let Some(old_textures) = state.skybox_textures.replace(new_skybox_textures) {
         state.textures_to_free.extend(old_textures);
     }
+
+    let new_atlas_texture =
+        context.register_bevy_texture(if file.loaded_textures.atlas.image != Handle::default() {
+            file.loaded_textures.atlas.image.clone()
+        } else {
+            state.unset_texture_icon.clone()
+        });
+    if let Some(old_texture) = state.atlas_texture.replace(new_atlas_texture) {
+        state.textures_to_free.push(old_texture);
+    }
 }
 
 fn on_map_setting_changed(on: On<MapEdited>, mut state: ResMut<UiState>) {
@@ -134,6 +146,12 @@ fn on_map_setting_changed(on: On<MapEdited>, mut state: ResMut<UiState>) {
             state.waiting_textures.push(SettingImageLoadWait {
                 image: image.image.clone(),
                 pick: SettingImagePick::Skybox(*index),
+            });
+        }
+        MapEdit::Atlas(image) => {
+            state.waiting_textures.push(SettingImageLoadWait {
+                image: image.image.clone(),
+                pick: SettingImagePick::Atlas,
             });
         }
     }
@@ -152,17 +170,15 @@ fn setting_image_picked(
                 ..Default::default()
             };
         });
+        let texture = LoadedTexture {
+            path: picked.path.clone(),
+            image,
+        };
         match picked.data {
-            SettingImagePick::Skybox(index) => file.edit_map(
-                &mut commands,
-                MapEdit::Skybox(
-                    index,
-                    LoadedTexture {
-                        path: picked.path.clone(),
-                        image,
-                    },
-                ),
-            ),
+            SettingImagePick::Skybox(index) => {
+                file.edit_map(&mut commands, MapEdit::Skybox(index, texture))
+            }
+            SettingImagePick::Atlas => file.edit_map(&mut commands, MapEdit::Atlas(texture)),
         }
     }
 }
@@ -188,6 +204,7 @@ fn draw_imgui(
     }
 
     let mut skybox_textures = state.skybox_textures;
+    let mut atlas_texture = state.atlas_texture;
     let mut removed_textures = vec![];
     state
         .waiting_textures
@@ -201,6 +218,11 @@ fn draw_imgui(
                             .expect("skybox_textures should be assigned by now");
                         removed_textures.push(mem::replace(&mut skybox_textures[index], image_id));
                     }
+                    SettingImagePick::Atlas => {
+                        if let Some(old_texture) = atlas_texture.replace(image_id) {
+                            removed_textures.push(old_texture);
+                        }
+                    }
                 }
                 false
             }
@@ -208,6 +230,7 @@ fn draw_imgui(
             _ => true,
         });
     state.skybox_textures = skybox_textures;
+    state.atlas_texture = atlas_texture;
     state.textures_to_free.extend(removed_textures);
 
     if state.reload_icon.is_none() && assets.is_loaded(&state.reload_icon_handle) {
@@ -338,21 +361,48 @@ fn draw_imgui(
 
         ui.spacing();
 
+        if let Some(atlas) = state.atlas_texture
+            && let Some(_token) = ui
+                .tree_node_config("Atlas")
+                .framed(true)
+                .tree_push_on_open(false)
+                .push()
+        {
+            if ui.button("Reload##Reload Atlas") {
+                let texture = &current_open_file.loaded_textures.atlas;
+                assets.reload(texture.path.clone());
+                commands.trigger(MapEdited(MapEdit::Atlas(texture.clone())));
+            }
+            if ui.image_button("Select Atlas", atlas, [256.0; 2]) {
+                commands
+                    .dialog()
+                    .set_title("Choose atlas file")
+                    .add_filter("Images", SUPPORTED_IMAGE_EXTENSIONS)
+                    .pick_file_path(SettingImagePick::Atlas);
+            }
+        }
+
+        ui.spacing();
+
         const SUPPORTED_IMAGE_EXTENSIONS: &[&str] = &[
             "bmp", "gif", "hdr", "ico", "jpg", "jpeg", "ktx2", "png", "tif", "tiff", "webp",
         ];
 
         if let Some(skybox) = state.skybox_textures
             && let Some(reload_icon) = state.reload_icon
-            && let Some(_token) = ui.tree_node_config("Skybox").framed(true).push()
+            && let Some(_token) = ui
+                .tree_node_config("Skybox")
+                .framed(true)
+                .tree_push_on_open(false)
+                .push()
         {
             const LABELS: CubeMap<&str> = ["Right", "Left", "Up", "Down", "Front", "Back"];
             for (index, (label, texture)) in LABELS.iter().zip(skybox.iter()).enumerate() {
-                if ui.image_button(label, *texture, [64.0; 2]) {
+                if ui.image_button(format!("Select {label}"), *texture, [128.0; 2]) {
                     commands
                         .dialog()
                         .set_title("Choose skybox file")
-                        .add_filter("Skybox images", SUPPORTED_IMAGE_EXTENSIONS)
+                        .add_filter("Images", SUPPORTED_IMAGE_EXTENSIONS)
                         .pick_file_path(SettingImagePick::Skybox(index));
                 }
                 ui.same_line();

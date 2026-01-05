@@ -234,6 +234,9 @@ fn on_map_setting_changed(
         MapEdit::Skybox(_, _) => {
             textures.skybox.outdated = true;
         }
+        MapEdit::Atlas(_) => {
+            textures.atlas.outdated = true;
+        }
     }
 }
 
@@ -360,6 +363,7 @@ fn update_textures(
     file: Res<LoadedFile>,
     assets: Res<AssetServer>,
     images: Res<Assets<Image>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     if textures.skybox.outdated
         && let Some(fallback) = images.get(&textures.skybox.missing)
@@ -434,11 +438,21 @@ fn update_textures(
         } else {
             textures.skybox.current = textures.skybox.missing.clone();
         }
-        textures.skybox.outdated = false;
 
         for mut skybox in skybox.iter_mut() {
             skybox.image = textures.skybox.current.clone();
         }
+
+        textures.skybox.outdated = false;
+    }
+
+    if textures.atlas.outdated {
+        textures.atlas.current = file.loaded_textures.atlas.image.clone();
+        materials
+            .get_mut(&textures.atlas_material)
+            .expect("atlas_material should exist")
+            .base_color_texture = Some(textures.atlas.current.clone());
+        textures.atlas.outdated = false;
     }
 }
 

@@ -9,6 +9,7 @@ pub struct MapEdited(pub MapEdit);
 pub enum MapEdit {
     StartingPosition(MpsVec2),
     Skybox(usize, LoadedTexture),
+    Atlas(LoadedTexture),
 }
 
 #[derive(Event, Copy, Clone, Debug)]
