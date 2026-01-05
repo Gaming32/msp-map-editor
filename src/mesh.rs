@@ -18,7 +18,7 @@ pub fn mesh_map(
     assets: &AssetServer,
 ) -> impl Bundle {
     #[derive(Bundle)]
-    struct ChildObject {
+    struct MeshObject {
         mesh: Mesh3d,
         material: MeshMaterial3d<StandardMaterial>,
         transform: Transform,
@@ -111,7 +111,7 @@ pub fn mesh_map(
         const BLOCK_SIZE: f32 = 1.0 / 8.0;
         const BLOCK_SIZE_2: f32 = BLOCK_SIZE / 2.0;
         let mut add_block = |width, depth, x, z| {
-            block_children.push(ChildObject {
+            block_children.push(MeshObject {
                 mesh: Mesh3d(assets.add(Cuboid::new(width, BLOCK_SIZE, depth).into())),
                 material: MeshMaterial3d(block_material.clone()),
                 transform: Transform::from_translation(Vec3::new(
@@ -162,7 +162,7 @@ pub fn mesh_map(
         const TRIM_SIZE: f32 = BLOCK_SIZE / 2.0;
         const TRIM_SIZE_2: f32 = TRIM_SIZE / 2.0;
         let mut add_trim = |width, depth, x, y_offset, z, x_angle, z_angle| {
-            block_children.push(ChildObject {
+            block_children.push(MeshObject {
                 mesh: Mesh3d(assets.add(Cuboid::new(width, TRIM_SIZE, depth).into())),
                 material: MeshMaterial3d(trim_material.clone()),
                 transform: Transform::from_translation(Vec3::new(
@@ -371,7 +371,7 @@ pub fn mesh_map(
     }
 
     (
-        ChildObject {
+        MeshObject {
             mesh: Mesh3d(assets.add(state.into_mesh())),
             material: MeshMaterial3d(atlas),
             transform: Transform::default(),
