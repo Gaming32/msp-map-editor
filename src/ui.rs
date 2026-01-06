@@ -325,7 +325,7 @@ fn draw_imgui(
                 commands.trigger(PresetView::Center);
             }
 
-            if ui.menu_item("Top-down") {
+            if ui.menu_item_config("Top-down").shortcut("Num 7").build() {
                 commands.trigger(PresetView::TopDown);
             }
         });
@@ -523,6 +523,10 @@ fn keyboard_handler(
         current_open_file.redo(&mut commands);
     } else if shortcut_pressed!(keys, Ctrl + KeyZ) {
         current_open_file.undo(&mut commands);
+    }
+
+    if shortcut_pressed!(keys, Numpad7) {
+        commands.trigger(PresetView::TopDown);
     }
 }
 
