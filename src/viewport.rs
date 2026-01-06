@@ -19,12 +19,13 @@ use bevy::render::render_resource::{
     TextureViewDimension,
 };
 use bevy::window::WindowEvent;
+use bevy_easings::{CustomComponentEase, EaseFunction, EasingType};
 use bevy_map_camera::controller::CameraControllerButtons;
 use bevy_map_camera::{CameraControllerSettings, LookTransform, MapCamera, MapCameraPlugin};
 use image::imageops::FilterType;
 use image::{DynamicImage, GenericImageView, RgbaImage};
 use std::f32::consts::PI;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use transform_gizmo_bevy::GizmoHotkeys;
 use transform_gizmo_bevy::prelude::*;
 
@@ -187,7 +188,7 @@ fn on_file_load(
     _: On<FileLoaded>,
     mut commands: Commands,
     objects: Query<Entity, Or<(With<ViewportObject>, With<MapMeshMarker>)>>,
-    mut camera: Query<&mut Skybox, With<Camera>>,
+    mut camera: Query<(&mut LookTransform, &mut Skybox), With<Camera>>,
     mut state: ResMut<ViewportState>,
     assets: Res<AssetServer>,
     file: Res<LoadedFile>,
@@ -215,12 +216,12 @@ fn on_file_load(
             old_rot: None,
         },
     ));
-    for mut skybox in camera.iter_mut() {
+    for (mut camera, mut skybox) in camera.iter_mut() {
+        *camera = get_player_cam_transform(player_pos);
         skybox.image = state.skybox.current.clone();
     }
 
     commands.trigger(RemeshMap);
-    commands.trigger(PresetView::Player);
 }
 
 fn on_map_edited(
@@ -398,34 +399,31 @@ fn on_pointer_click(
 
 fn on_preset_view(
     on: On<PresetView>,
-    mut camera: Query<(&mut LookTransform, &Projection), With<Camera>>,
+    mut camera: Query<(Entity, &LookTransform, &Projection), With<Camera>>,
+    mut commands: Commands,
     player_pos: Query<&Transform, With<PlayerMarker>>,
     file: Res<LoadedFile>,
 ) {
-    for (mut transform, projection) in camera.iter_mut() {
-        match on.event() {
+    for (camera, transform, projection) in camera.iter_mut() {
+        let new_transform = match on.event() {
             PresetView::Player => {
                 let Ok(player_pos) = player_pos.single_inner() else {
                     return;
                 };
-                const CAM_OFFSET: Vec3 = Vec3::new(0.0, 3.0, 6.0);
-                transform.eye = player_pos.translation + CAM_OFFSET;
-                transform.target = Vec3::new(
-                    player_pos.translation.x,
-                    0.0,
-                    transform.eye.z - transform.eye.y / CAM_OFFSET.y * CAM_OFFSET.z,
-                );
-                transform.up = Vec3::Y;
+                get_player_cam_transform(player_pos.translation)
             }
             PresetView::Center => {
                 let data = &file.file.data;
-                transform.target = Vec3::new(
+                let target = Vec3::new(
                     data.cols() as f32 / 2.0 - 0.5,
                     0.0,
                     data.rows() as f32 / 2.0 - 0.5,
                 );
-                transform.eye = transform.target + Vec3::new(-6.0, 6.0, 6.0);
-                transform.up = Vec3::Y;
+                LookTransform {
+                    eye: target + Vec3::new(-10.0, 10.0, 10.0),
+                    target,
+                    up: Vec3::Y,
+                }
             }
             PresetView::TopDown => {
                 let Projection::Perspective(perspective) = projection else {
@@ -442,17 +440,39 @@ fn on_preset_view(
                     .reduce(f32::max)
                     .unwrap_or_default();
 
-                transform.target = Vec3::new(
+                let target = Vec3::new(
                     data.cols() as f32 / 2.0 - 0.5,
                     0.0,
                     data.rows() as f32 / 2.0 - 0.5,
                 );
-                transform.eye = transform
-                    .target
-                    .with_y(base_height + w_distance.max(h_distance).max(20.0));
-                transform.up = Vec3::NEG_Z;
+                LookTransform {
+                    eye: target.with_y(base_height + w_distance.max(h_distance).max(20.0)),
+                    target,
+                    up: Vec3::NEG_Z,
+                }
             }
-        }
+        };
+        commands.entity(camera).insert(transform.ease_to(
+            new_transform,
+            EaseFunction::QuinticInOut,
+            EasingType::Once {
+                duration: Duration::from_millis(300),
+            },
+        ));
+    }
+}
+
+fn get_player_cam_transform(player_pos: Vec3) -> LookTransform {
+    const CAM_OFFSET: Vec3 = Vec3::new(0.0, 3.0, 6.0);
+    let eye = player_pos + CAM_OFFSET;
+    LookTransform {
+        eye,
+        target: Vec3::new(
+            player_pos.x,
+            0.0,
+            eye.z - eye.y / CAM_OFFSET.y * CAM_OFFSET.z,
+        ),
+        up: Vec3::Y,
     }
 }
 
