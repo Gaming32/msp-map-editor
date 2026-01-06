@@ -8,9 +8,9 @@
             format: FromExtension,
             is_srgb: true,
             sampler: Descriptor(ImageSamplerDescriptor(
-                address_mode_u: ClampToEdge,
-                address_mode_v: ClampToEdge,
-                address_mode_w: ClampToEdge,
+                address_mode_u: Repeat,
+                address_mode_v: Repeat,
+                address_mode_w: Repeat,
                 mag_filter: Nearest,
                 min_filter: Nearest,
                 mipmap_filter: Nearest,

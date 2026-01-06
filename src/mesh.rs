@@ -30,7 +30,6 @@ pub fn mesh_map(
     }
 
     let mut state = State::new(map);
-    let mut floor = State::new(map);
     let mut block_children = vec![];
     let mut key_gates = vec![];
 
@@ -46,19 +45,24 @@ pub fn mesh_map(
     });
 
     for ((y, x), tile) in map.indexed_iter() {
-        let xf = x as f32;
-        let yf = y as f32;
-        floor.push_up_quad(xf, yf, 0.0, (0.0, 0.0, 1.0, 1.0));
-
         if tile.height == TileHeight::default() {
             continue;
         }
-
+        
+        let xf = x as f32;
+        let yf = y as f32;
         let uv = tile.material.to_uv_coords();
 
         match tile.height {
             TileHeight::Flat { height, .. } => {
-                state.push_up_quad(xf, yf, height as f32, uv);
+                let height32 = height as f32;
+                let index_start = state.positions.len() as u32;
+                state.positions.push([xf - 0.5, height32, yf - 0.5]);
+                state.positions.push([xf + 0.5, height32, yf - 0.5]);
+                state.positions.push([xf - 0.5, height32, yf + 0.5]);
+                state.positions.push([xf + 0.5, height32, yf + 0.5]);
+                state.push_quad_uv_indices(uv, index_start);
+                
                 if x == 0 || height > map[(y, x - 1)].height.min_height() {
                     mesh_wall(&mut state, x, y, tile, Direction::West);
                 }
@@ -384,7 +388,17 @@ pub fn mesh_map(
             key_gates,
             Spawn((
                 MeshObject {
-                    mesh: Mesh3d(meshes.add(floor.into_mesh())),
+                    mesh: Mesh3d(meshes.add({
+                        let mut floor = State::new(map);
+                        let x2 = map.cols() as f32 - 0.5;
+                        let y2 = map.rows() as f32 - 0.5;
+                        floor.positions.push([-0.5, 0.0, -0.5]);
+                        floor.positions.push([x2, 0.0, -0.5]);
+                        floor.positions.push([-0.5, 0.0, y2]);
+                        floor.positions.push([x2, 0.0, y2]);
+                        floor.push_quad_uv_indices((0.0, 0.0, map.cols() as f32, map.rows() as f32), 0);
+                        floor.into_mesh()
+                    })),
                     material: MeshMaterial3d(materials.add(StandardMaterial {
                         base_color_texture: Some(assets::floor(assets)),
                         perceptual_roughness: 1.0,
@@ -417,15 +431,6 @@ impl<'a> State<'a> {
             uvs: vec![],
             indices: vec![],
         }
-    }
-
-    fn push_up_quad(&mut self, x: f32, y: f32, height: f32, uv: (f32, f32, f32, f32)) {
-        let index_start = self.positions.len() as u32;
-        self.positions.push([x - 0.5, height, y - 0.5]);
-        self.positions.push([x + 0.5, height, y - 0.5]);
-        self.positions.push([x - 0.5, height, y + 0.5]);
-        self.positions.push([x + 0.5, height, y + 0.5]);
-        self.push_quad_uv_indices(uv, index_start);
     }
 
     fn push_quad_uv_indices(&mut self, (u1, v1, u2, v2): (f32, f32, f32, f32), index_start: u32) {
