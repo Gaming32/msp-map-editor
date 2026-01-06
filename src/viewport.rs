@@ -75,7 +75,7 @@ impl Plugin for ViewportPlugin {
         )
         .add_systems(Startup, setup_viewport)
         .add_observer(on_file_load)
-        .add_observer(on_map_setting_changed)
+        .add_observer(on_map_edited)
         .add_observer(on_remesh_map)
         .add_observer(on_select_for_editing)
         .add_observer(on_pointer_click)
@@ -227,7 +227,7 @@ fn on_file_load(
     commands.trigger(RemeshMap);
 }
 
-fn on_map_setting_changed(
+fn on_map_edited(
     on: On<MapEdited>,
     mut commands: Commands,
     file: Res<LoadedFile>,
@@ -235,10 +235,7 @@ fn on_map_setting_changed(
         (&mut Transform, &mut ViewportObject),
         (With<PlayerMarker>, Without<BoundsGizmoMarker>),
     >,
-    mut bounds_markers: Query<
-        (&mut Transform, &mut ViewportObject, &BoundsGizmoMarker),
-        Without<PlayerMarker>,
-    >,
+    mut bounds_markers: Query<(&mut Transform, &mut ViewportObject, &BoundsGizmoMarker)>,
     mut textures: ResMut<ViewportState>,
 ) {
     let mut change_player_pos = false;
@@ -471,16 +468,17 @@ fn sync_from_gizmos(
                         } else {
                             y_change
                         };
+                        let mut changed = false;
                         if axis > 0 {
                             for _ in 0..axis {
-                                file.edit_map(&mut commands, expand.clone());
+                                changed |= file.edit_map(&mut commands, expand.clone());
                             }
                         } else if axis < 0 {
                             for _ in 0..axis.abs() {
-                                file.edit_map(&mut commands, shrink.clone());
+                                changed |= file.edit_map(&mut commands, shrink.clone());
                             }
                         }
-                        if axis != 0 {
+                        if changed {
                             object.old_pos = transform.translation;
                         } else {
                             transform.translation = object.old_pos;

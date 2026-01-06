@@ -36,7 +36,7 @@ impl LoadedFile {
         }
     }
 
-    pub fn edit_map(&mut self, commands: &mut Commands, edit: MapEdit) {
+    pub fn edit_map(&mut self, commands: &mut Commands, edit: MapEdit) -> bool {
         let invalid = match edit {
             MapEdit::ShrinkMap(Direction::West | Direction::East) if self.file.data.cols() < 2 => {
                 true
@@ -49,7 +49,7 @@ impl LoadedFile {
             _ => false,
         };
         if invalid {
-            return;
+            return false;
         }
 
         let reversed = match edit {
@@ -80,7 +80,7 @@ impl LoadedFile {
             ),
         };
         if edit == reversed {
-            return;
+            return false;
         }
 
         self.history.truncate(self.history_index);
@@ -91,6 +91,7 @@ impl LoadedFile {
         self.history_index += 1;
 
         self.apply_edit(commands, edit);
+        true
     }
 
     pub fn undo(&mut self, commands: &mut Commands) {

@@ -50,7 +50,7 @@ impl Plugin for MapEditorUi {
             });
         })
         .add_observer(on_file_loaded)
-        .add_observer(on_map_setting_changed)
+        .add_observer(on_map_edited)
         .add_systems(
             Update,
             (
@@ -137,7 +137,7 @@ fn on_file_loaded(
     }
 }
 
-fn on_map_setting_changed(on: On<MapEdited>, mut state: ResMut<UiState>) {
+fn on_map_edited(on: On<MapEdited>, mut state: ResMut<UiState>) {
     match &on.0 {
         MapEdit::StartingPosition(_) => {}
         MapEdit::Skybox(index, image) => {
@@ -175,9 +175,11 @@ fn setting_image_picked(
         };
         match picked.data {
             SettingImagePick::Skybox(index) => {
-                file.edit_map(&mut commands, MapEdit::Skybox(index, texture))
+                file.edit_map(&mut commands, MapEdit::Skybox(index, texture));
             }
-            SettingImagePick::Atlas => file.edit_map(&mut commands, MapEdit::Atlas(texture)),
+            SettingImagePick::Atlas => {
+                file.edit_map(&mut commands, MapEdit::Atlas(texture));
+            }
         }
     }
 }
