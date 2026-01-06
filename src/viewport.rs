@@ -204,8 +204,13 @@ fn on_file_load(
         },
     ));
     for (mut camera, mut skybox) in camera.iter_mut() {
-        camera.eye = player_pos + Vec3::new(0.0, 4.0, 8.0);
-        camera.target = player_pos;
+        const CAM_OFFSET: Vec3 = Vec3::new(0.0, 3.0, 6.0);
+        camera.eye = player_pos + CAM_OFFSET;
+        camera.target = Vec3::new(
+            player_pos.x,
+            0.0,
+            camera.eye.z - camera.eye.y / CAM_OFFSET.y * CAM_OFFSET.z,
+        );
         skybox.image = state.skybox.current.clone();
     }
 
