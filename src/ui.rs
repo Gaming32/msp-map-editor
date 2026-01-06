@@ -5,7 +5,7 @@ use crate::load_file::{
     save_file_as,
 };
 use crate::schema::CubeMap;
-use crate::sync::Direction;
+use crate::sync::{Direction, PresetView};
 use crate::sync::{EditObject, MapEdit, MapEdited, SelectForEditing};
 use crate::viewport::ViewportTarget;
 use crate::{Directories, shortcut_pressed};
@@ -313,6 +313,20 @@ fn draw_imgui(
                 .build()
             {
                 current_open_file.redo(&mut commands);
+            }
+        });
+
+        ui.menu("View", || {
+            if ui.menu_item("Player") {
+                commands.trigger(PresetView::Player);
+            }
+
+            if ui.menu_item("Center") {
+                commands.trigger(PresetView::Center);
+            }
+
+            if ui.menu_item("Top-down") {
+                commands.trigger(PresetView::TopDown);
             }
         });
     });

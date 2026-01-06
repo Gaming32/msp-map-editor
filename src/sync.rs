@@ -51,6 +51,13 @@ pub enum Direction {
     South,
 }
 
+#[derive(Event, Copy, Clone, Debug, Eq, PartialEq)]
+pub enum PresetView {
+    Player,
+    Center,
+    TopDown,
+}
+
 impl From<MpsVec2> for mint::Vector2<i32> {
     fn from(value: MpsVec2) -> Self {
         Self {

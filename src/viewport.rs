@@ -2,7 +2,7 @@ use crate::assets::{PlayerMarker, missing_atlas, missing_skybox, player};
 use crate::load_file::{FileLoaded, LoadedFile};
 use crate::mesh::{MapMeshMarker, mesh_map};
 use crate::schema::MpsVec2;
-use crate::sync::{Direction, EditObject, MapEdit, MapEdited, SelectForEditing};
+use crate::sync::{Direction, EditObject, MapEdit, MapEdited, PresetView, SelectForEditing};
 use crate::{modifier_key, shortcut_pressed};
 use bevy::asset::io::embedded::GetAssetServer;
 use bevy::asset::{LoadState, RenderAssetUsages};
@@ -79,10 +79,12 @@ impl Plugin for ViewportPlugin {
         .add_observer(on_remesh_map)
         .add_observer(on_select_for_editing)
         .add_observer(on_pointer_click)
+        .add_observer(on_preset_view)
         .add_systems(
             Update,
             (
                 keyboard_handler,
+                ensure_camera_up,
                 update_gizmos,
                 sync_from_gizmos,
                 update_lights,
@@ -185,7 +187,7 @@ fn on_file_load(
     _: On<FileLoaded>,
     mut commands: Commands,
     objects: Query<Entity, Or<(With<ViewportObject>, With<MapMeshMarker>)>>,
-    mut camera: Query<(&mut LookTransform, &mut Skybox), With<Camera>>,
+    mut camera: Query<&mut Skybox, With<Camera>>,
     mut state: ResMut<ViewportState>,
     assets: Res<AssetServer>,
     file: Res<LoadedFile>,
@@ -213,18 +215,12 @@ fn on_file_load(
             old_rot: None,
         },
     ));
-    for (mut camera, mut skybox) in camera.iter_mut() {
-        const CAM_OFFSET: Vec3 = Vec3::new(0.0, 3.0, 6.0);
-        camera.eye = player_pos + CAM_OFFSET;
-        camera.target = Vec3::new(
-            player_pos.x,
-            0.0,
-            camera.eye.z - camera.eye.y / CAM_OFFSET.y * CAM_OFFSET.z,
-        );
+    for mut skybox in camera.iter_mut() {
         skybox.image = state.skybox.current.clone();
     }
 
     commands.trigger(RemeshMap);
+    commands.trigger(PresetView::Player);
 }
 
 fn on_map_edited(
@@ -400,12 +396,80 @@ fn on_pointer_click(
     });
 }
 
+fn on_preset_view(
+    on: On<PresetView>,
+    mut camera: Query<(&mut LookTransform, &Projection), With<Camera>>,
+    player_pos: Query<&Transform, With<PlayerMarker>>,
+    file: Res<LoadedFile>,
+) {
+    for (mut transform, projection) in camera.iter_mut() {
+        match on.event() {
+            PresetView::Player => {
+                let Ok(player_pos) = player_pos.single_inner() else {
+                    return;
+                };
+                const CAM_OFFSET: Vec3 = Vec3::new(0.0, 3.0, 6.0);
+                transform.eye = player_pos.translation + CAM_OFFSET;
+                transform.target = Vec3::new(
+                    player_pos.translation.x,
+                    0.0,
+                    transform.eye.z - transform.eye.y / CAM_OFFSET.y * CAM_OFFSET.z,
+                );
+                transform.up = Vec3::Y;
+            }
+            PresetView::Center => {
+                let data = &file.file.data;
+                transform.target = Vec3::new(
+                    data.cols() as f32 / 2.0 - 0.5,
+                    0.0,
+                    data.rows() as f32 / 2.0 - 0.5,
+                );
+                transform.eye = transform.target + Vec3::new(-6.0, 6.0, 6.0);
+                transform.up = Vec3::Y;
+            }
+            PresetView::TopDown => {
+                let Projection::Perspective(perspective) = projection else {
+                    return;
+                };
+                let data = &file.file.data;
+                let fov_tan = (perspective.fov / 2.0).tan();
+                let w_distance =
+                    (data.cols() as f32 / 2.0 + 0.5) / (fov_tan * perspective.aspect_ratio);
+                let h_distance = (data.rows() as f32 / 2.0 + 0.5) / fov_tan;
+                let base_height = data
+                    .iter()
+                    .map(|x| x.height.max_height() as f32)
+                    .reduce(f32::max)
+                    .unwrap_or_default();
+
+                transform.target = Vec3::new(
+                    data.cols() as f32 / 2.0 - 0.5,
+                    0.0,
+                    data.rows() as f32 / 2.0 - 0.5,
+                );
+                transform.eye = transform
+                    .target
+                    .with_y(base_height + w_distance.max(h_distance).max(20.0));
+                transform.up = Vec3::NEG_Z;
+            }
+        }
+    }
+}
+
 fn keyboard_handler(keys: Res<ButtonInput<KeyCode>>, mut commands: Commands) {
     if shortcut_pressed!(keys, Alt + KeyA) {
         commands.trigger(SelectForEditing {
             object: EditObject::None,
             exclusive: true,
         })
+    }
+}
+
+fn ensure_camera_up(mut camera: Query<(&mut LookTransform, &Transform), With<Camera>>) {
+    for (mut look, real) in camera.iter_mut() {
+        if !real.forward().abs_diff_eq(Vec3::NEG_Y, 0.001) && look.up != Vec3::Y {
+            look.up = Vec3::Y;
+        }
     }
 }
 

@@ -225,6 +225,13 @@ impl TileHeight {
         }
     }
 
+    pub fn max_height(self) -> f64 {
+        match self {
+            Self::Flat { height, .. } => height,
+            Self::Ramp { height, .. } => height.pos.max(height.neg),
+        }
+    }
+
     pub fn equals_flat(self, other: f64) -> bool {
         self == Self::Flat {
             ramp: MustBeBool,
