@@ -1,8 +1,11 @@
+use crate::assets;
 use crate::assets::key_gate;
 use crate::schema::{
     Connection, ConnectionCondition, MpsMaterial, TileData, TileHeight, TileRampDirection,
 };
+use crate::sync::Direction;
 use bevy::asset::RenderAssetUsages;
+use bevy::light::{NotShadowCaster, NotShadowReceiver};
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
 use grid::Grid;
@@ -16,6 +19,8 @@ pub fn mesh_map(
     map: &Grid<TileData>,
     atlas: Handle<StandardMaterial>,
     assets: &AssetServer,
+    materials: &mut Assets<StandardMaterial>,
+    meshes: &mut Assets<Mesh>,
 ) -> impl Bundle {
     #[derive(Bundle)]
     struct MeshObject {
@@ -25,39 +30,35 @@ pub fn mesh_map(
     }
 
     let mut state = State::new(map);
+    let mut floor = State::new(map);
     let mut block_children = vec![];
     let mut key_gates = vec![];
 
-    let block_material = assets.add(StandardMaterial {
+    let block_material = materials.add(StandardMaterial {
         base_color: Srgba::rgb_u8(0x11, 0x11, 0x11).into(),
         perceptual_roughness: 1.0,
         ..Default::default()
     });
-    let trim_material = assets.add(StandardMaterial {
+    let trim_material = materials.add(StandardMaterial {
         base_color: Srgba::rgb_u8(0xAA, 0xAA, 0xAA).into(),
         perceptual_roughness: 1.0,
         ..Default::default()
     });
 
     for ((y, x), tile) in map.indexed_iter() {
+        let xf = x as f32;
+        let yf = y as f32;
+        floor.push_up_quad(xf, yf, 0.0, (0.0, 0.0, 1.0, 1.0));
+
         if tile.height == TileHeight::default() {
             continue;
         }
 
-        let index_start = state.positions.len() as u32;
         let uv = tile.material.to_uv_coords();
-        let xf = x as f32;
-        let yf = y as f32;
 
         match tile.height {
             TileHeight::Flat { height, .. } => {
-                let height32 = height as f32;
-                state.positions.push([xf - 0.5, height32, yf - 0.5]);
-                state.positions.push([xf + 0.5, height32, yf - 0.5]);
-                state.positions.push([xf - 0.5, height32, yf + 0.5]);
-                state.positions.push([xf + 0.5, height32, yf + 0.5]);
-                state.push_quad_uv_indices(uv, index_start);
-
+                state.push_up_quad(xf, yf, height as f32, uv);
                 if x == 0 || height > map[(y, x - 1)].height.min_height() {
                     mesh_wall(&mut state, x, y, tile, Direction::West);
                 }
@@ -72,6 +73,7 @@ pub fn mesh_map(
                 }
             }
             TileHeight::Ramp { height, .. } => {
+                let index_start = state.positions.len() as u32;
                 let dir_v = height.dir == TileRampDirection::Vertical;
                 let pos = height.pos as f32;
                 let neg = height.neg as f32;
@@ -112,7 +114,7 @@ pub fn mesh_map(
         const BLOCK_SIZE_2: f32 = BLOCK_SIZE / 2.0;
         let mut add_block = |width, depth, x, z| {
             block_children.push(MeshObject {
-                mesh: Mesh3d(assets.add(Cuboid::new(width, BLOCK_SIZE, depth).into())),
+                mesh: Mesh3d(meshes.add(Cuboid::new(width, BLOCK_SIZE, depth).mesh())),
                 material: MeshMaterial3d(block_material.clone()),
                 transform: Transform::from_translation(Vec3::new(
                     x,
@@ -163,7 +165,7 @@ pub fn mesh_map(
         const TRIM_SIZE_2: f32 = TRIM_SIZE / 2.0;
         let mut add_trim = |width, depth, x, y_offset, z, x_angle, z_angle| {
             block_children.push(MeshObject {
-                mesh: Mesh3d(assets.add(Cuboid::new(width, TRIM_SIZE, depth).into())),
+                mesh: Mesh3d(meshes.add(Cuboid::new(width, TRIM_SIZE, depth).mesh())),
                 material: MeshMaterial3d(trim_material.clone()),
                 transform: Transform::from_translation(Vec3::new(
                     x,
@@ -372,12 +374,31 @@ pub fn mesh_map(
 
     (
         MeshObject {
-            mesh: Mesh3d(assets.add(state.into_mesh())),
+            mesh: Mesh3d(meshes.add(state.into_mesh())),
             material: MeshMaterial3d(atlas),
             transform: Transform::default(),
         },
         MapMeshMarker,
-        Children::spawn((block_children, key_gates)),
+        Children::spawn((
+            block_children,
+            key_gates,
+            Spawn((
+                MeshObject {
+                    mesh: Mesh3d(meshes.add(floor.into_mesh())),
+                    material: MeshMaterial3d(materials.add(StandardMaterial {
+                        base_color_texture: Some(assets::floor(assets)),
+                        perceptual_roughness: 1.0,
+                        double_sided: true,
+                        cull_mode: None,
+                        alpha_mode: AlphaMode::Add,
+                        ..Default::default()
+                    })),
+                    transform: Transform::default(),
+                },
+                NotShadowCaster,
+                NotShadowReceiver,
+            )),
+        )),
     )
 }
 
@@ -396,6 +417,15 @@ impl<'a> State<'a> {
             uvs: vec![],
             indices: vec![],
         }
+    }
+
+    fn push_up_quad(&mut self, x: f32, y: f32, height: f32, uv: (f32, f32, f32, f32)) {
+        let index_start = self.positions.len() as u32;
+        self.positions.push([x - 0.5, height, y - 0.5]);
+        self.positions.push([x + 0.5, height, y - 0.5]);
+        self.positions.push([x - 0.5, height, y + 0.5]);
+        self.positions.push([x + 0.5, height, y + 0.5]);
+        self.push_quad_uv_indices(uv, index_start);
     }
 
     fn push_quad_uv_indices(&mut self, (u1, v1, u2, v2): (f32, f32, f32, f32), index_start: u32) {
@@ -611,12 +641,4 @@ fn mesh_wall(
     }
 
     Some(())
-}
-
-#[derive(Copy, Clone)]
-enum Direction {
-    West,
-    East,
-    North,
-    South,
 }

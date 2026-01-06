@@ -4,7 +4,8 @@ use crate::load_file::{
     FileLoaded, LoadedFile, LoadedTexture, MapFileDialog, new_file, open_file, save_file,
     save_file_as,
 };
-use crate::schema::{CubeMap, MpsVec2};
+use crate::schema::CubeMap;
+use crate::sync::Direction;
 use crate::sync::{EditObject, MapEdit, MapEdited, SelectForEditing};
 use crate::viewport::ViewportTarget;
 use crate::{Directories, shortcut_pressed};
@@ -69,7 +70,6 @@ pub struct UiState {
     textures_to_free: Vec<TextureId>,
     free_timer: Timer,
     pending_close_state: PendingCloseState,
-    starting_tile: MpsVec2,
     skybox_textures: Option<CubeMap<TextureId>>,
     atlas_texture: Option<TextureId>,
     waiting_textures: Vec<SettingImageLoadWait>,
@@ -115,8 +115,6 @@ fn on_file_loaded(
     mut state: ResMut<UiState>,
     mut context: NonSendMut<ImguiContext>,
 ) {
-    state.starting_tile = file.file.starting_tile;
-
     let new_skybox_textures = file.loaded_textures.skybox.each_ref().map(|tex| {
         context.register_bevy_texture(if tex.image != Handle::default() {
             tex.image.clone()
@@ -141,7 +139,7 @@ fn on_file_loaded(
 
 fn on_map_setting_changed(on: On<MapEdited>, mut state: ResMut<UiState>) {
     match &on.0 {
-        MapEdit::StartingPosition(pos) => state.starting_tile = *pos,
+        MapEdit::StartingPosition(_) => {}
         MapEdit::Skybox(index, image) => {
             state.waiting_textures.push(SettingImageLoadWait {
                 image: image.image.clone(),
@@ -154,6 +152,7 @@ fn on_map_setting_changed(on: On<MapEdited>, mut state: ResMut<UiState>) {
                 pick: SettingImagePick::Atlas,
             });
         }
+        MapEdit::ExpandMap(_, _) | MapEdit::ShrinkMap(_) => {}
     }
 }
 
@@ -249,7 +248,7 @@ fn draw_imgui(
 
     if !state.setup_complete {
         ui.dockspace_over_viewport().split(
-            Direction::Left,
+            imgui::Direction::Left,
             0.8,
             |left| {
                 left.dock_window("Viewport");
@@ -351,12 +350,36 @@ fn draw_imgui(
                 exclusive: true,
             });
         }
-        if ui
-            .input_int2("##Starting Tile", &mut state.starting_tile)
-            .build()
-        {
-            let pos = current_open_file.in_bounds(state.starting_tile);
-            current_open_file.edit_map(&mut commands, MapEdit::StartingPosition(pos));
+        let mut starting_tile = current_open_file.file.starting_tile;
+        if ui.input_int2("##Starting Tile", &mut starting_tile).build() {
+            starting_tile = current_open_file.in_bounds(starting_tile);
+            current_open_file.edit_map(&mut commands, MapEdit::StartingPosition(starting_tile));
+        }
+
+        ui.spacing();
+
+        ui.text(format!(
+            "Map size: {}x{}",
+            current_open_file.file.data.cols(),
+            current_open_file.file.data.rows()
+        ));
+        if ui.button("Edit map bounds") {
+            commands.trigger(SelectForEditing {
+                object: EditObject::MapSize(Direction::West),
+                exclusive: true,
+            });
+            commands.trigger(SelectForEditing {
+                object: EditObject::MapSize(Direction::East),
+                exclusive: false,
+            });
+            commands.trigger(SelectForEditing {
+                object: EditObject::MapSize(Direction::North),
+                exclusive: false,
+            });
+            commands.trigger(SelectForEditing {
+                object: EditObject::MapSize(Direction::South),
+                exclusive: false,
+            });
         }
 
         ui.spacing();

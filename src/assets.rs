@@ -42,6 +42,7 @@ impl Plugin for EmbeddedAssetsPlugin {
         embedded_asset!("assets/objects/key_gate.glb");
         embedded_asset!("assets/objects/star.glb");
 
+        embedded_asset!("assets/floor.png" with meta);
         embedded_asset!("assets/missing_atlas.png" with meta);
         embedded_asset!("assets/missing_skybox.ktx2");
         embedded_asset!("assets/player.png" with meta);
@@ -118,18 +119,22 @@ pub fn tutorial_obj(assets: &AssetServer, obj: impl Bundle) -> impl Bundle {
     )
 }
 
-pub fn missing_skybox(assets: &AssetServer) -> Handle<Image> {
-    assets.load(asset_path!("missing_skybox.ktx2"))
-}
-
-pub fn missing_atlas(assets: &AssetServer) -> Handle<Image> {
-    assets.load(asset_path!("missing_atlas.png"))
-}
-
 pub fn reload_icon(assets: &AssetServer) -> Handle<Image> {
     assets.load(asset_path!("icons/reload.png"))
 }
 
 pub fn unset_texture_icon(assets: &AssetServer) -> Handle<Image> {
     assets.load(asset_path!("icons/unset_texture.png"))
+}
+
+pub fn floor(assets: &AssetServer) -> Handle<Image> {
+    assets.load(asset_path!("floor.png"))
+}
+
+pub fn missing_skybox(assets: &AssetServer) -> Handle<Image> {
+    assets.load(asset_path!("missing_skybox.ktx2"))
+}
+
+pub fn missing_atlas(assets: &AssetServer) -> Handle<Image> {
+    assets.load(asset_path!("missing_atlas.png"))
 }

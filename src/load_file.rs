@@ -1,6 +1,6 @@
 use crate::TITLE;
-use crate::schema::{MapFile, MpsVec2, Textures};
-use crate::sync::{MapEdit, MapEdited};
+use crate::schema::{MapFile, MpsVec2, Textures, TileData};
+use crate::sync::{Direction, MapEdit, MapEdited};
 use crate::ui::UiState;
 use bevy::image::{ImageFormatSetting, ImageLoaderSettings, ImageSampler};
 use bevy::prelude::*;
@@ -37,12 +37,47 @@ impl LoadedFile {
     }
 
     pub fn edit_map(&mut self, commands: &mut Commands, edit: MapEdit) {
+        let invalid = match edit {
+            MapEdit::ShrinkMap(Direction::West | Direction::East) if self.file.data.cols() < 2 => {
+                true
+            }
+            MapEdit::ShrinkMap(Direction::North | Direction::South)
+                if self.file.data.rows() < 2 =>
+            {
+                true
+            }
+            _ => false,
+        };
+        if invalid {
+            return;
+        }
+
         let reversed = match edit {
             MapEdit::StartingPosition(_) => MapEdit::StartingPosition(self.file.starting_tile),
             MapEdit::Skybox(index, _) => {
                 MapEdit::Skybox(index, self.loaded_textures.skybox[index].clone())
             }
             MapEdit::Atlas(_) => MapEdit::Atlas(self.loaded_textures.atlas.clone()),
+            MapEdit::ExpandMap(side, _) => MapEdit::ShrinkMap(side),
+            MapEdit::ShrinkMap(side) => MapEdit::ExpandMap(
+                side,
+                Some(match side {
+                    Direction::West => self.file.data.iter_col(0).cloned().collect(),
+                    Direction::East => self
+                        .file
+                        .data
+                        .iter_col(self.file.data.cols() - 1)
+                        .cloned()
+                        .collect(),
+                    Direction::North => self.file.data.iter_row(0).cloned().collect(),
+                    Direction::South => self
+                        .file
+                        .data
+                        .iter_row(self.file.data.rows() - 1)
+                        .cloned()
+                        .collect(),
+                }),
+            ),
         };
         if edit == reversed {
             return;
@@ -81,12 +116,64 @@ impl LoadedFile {
             MapEdit::Atlas(image) => {
                 self.loaded_textures.atlas = image.clone();
             }
+            MapEdit::ExpandMap(side, data) => {
+                let data = data.clone().unwrap_or_else(|| {
+                    let size = match side {
+                        Direction::West | Direction::East => self.file.data.rows(),
+                        Direction::North | Direction::South => self.file.data.cols(),
+                    };
+                    vec![TileData::default(); size]
+                });
+                match side {
+                    Direction::West => {
+                        self.file.data.insert_col(0, data);
+                        self.adjust_coords(MpsVec2::new(1, 0));
+                    }
+                    Direction::East => self.file.data.insert_col(self.file.data.cols(), data),
+                    Direction::North => {
+                        self.file.data.insert_row(0, data);
+                        self.adjust_coords(MpsVec2::new(0, 1));
+                    }
+                    Direction::South => self.file.data.insert_row(self.file.data.rows(), data),
+                }
+            }
+            MapEdit::ShrinkMap(side) => match side {
+                Direction::West => {
+                    self.file.data.remove_col(0);
+                    self.adjust_coords(MpsVec2::new(-1, 0));
+                }
+                Direction::East => {
+                    self.file.data.remove_col(self.file.data.cols() - 1);
+                }
+                Direction::North => {
+                    self.file.data.remove_row(0);
+                    self.adjust_coords(MpsVec2::new(0, -1));
+                }
+                Direction::South => {
+                    self.file.data.remove_row(self.file.data.rows() - 1);
+                }
+            },
         }
+
         if !self.dirty {
             self.dirty = true;
             commands.write_message(UpdateHeader);
         }
         commands.trigger(MapEdited(edit));
+    }
+
+    fn adjust_coords(&mut self, adjust: MpsVec2) {
+        self.file.starting_tile += adjust;
+        for tile in &mut self.file.shop_warp_tiles {
+            *tile += adjust;
+        }
+        self.file.star_warp_tile += adjust;
+        self.file.podium_position += adjust;
+        for pos in &mut self.file.results_anim_cam_poses {
+            *pos += adjust.into();
+        }
+        self.file.tutorial_star.pos += adjust.into();
+        self.file.tutorial_shop.pos += adjust.into();
     }
 
     pub fn can_undo(&self) -> bool {

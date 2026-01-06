@@ -6,7 +6,7 @@ use relative_path::RelativePathBuf;
 use serde::{Deserialize, Serialize};
 use serde_with::OneOrMany;
 use serde_with::serde_as;
-use std::ops::Sub;
+use std::ops::{AddAssign, Sub};
 use strum::IntoStaticStr;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -81,6 +81,13 @@ impl MpsVec2 {
     }
 }
 
+impl AddAssign for MpsVec2 {
+    fn add_assign(&mut self, rhs: Self) {
+        self.x += rhs.x;
+        self.y += rhs.y;
+    }
+}
+
 impl Sub for MpsVec2 {
     type Output = Self;
 
@@ -88,6 +95,16 @@ impl Sub for MpsVec2 {
         Self {
             x: self.x - rhs.x,
             y: self.y - rhs.y,
+        }
+    }
+}
+
+impl From<MpsVec2> for MpsVec3 {
+    fn from(val: MpsVec2) -> Self {
+        MpsVec3 {
+            x: val.x as f64,
+            y: 0.0,
+            z: val.y as f64,
         }
     }
 }
@@ -103,6 +120,14 @@ pub struct MpsVec3 {
     pub x: f64,
     pub y: f64,
     pub z: f64,
+}
+
+impl AddAssign for MpsVec3 {
+    fn add_assign(&mut self, rhs: Self) {
+        self.x += rhs.x;
+        self.y += rhs.y;
+        self.z += rhs.z;
+    }
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -142,7 +167,7 @@ pub enum ShopItem {
     Key,
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TileData {
     #[serde(flatten)]
@@ -223,7 +248,7 @@ pub enum TileRampDirection {
     Vertical,
 }
 
-#[derive(Copy, Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ConnectionMap {
     #[serde(rename = "n")]
     pub north: Connection,
@@ -235,7 +260,7 @@ pub struct ConnectionMap {
     pub west: Connection,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Connection {
     Unconditional(bool),
@@ -254,14 +279,14 @@ impl Connection {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ConnectionCondition {
     Lock,
 }
 
 #[serde_as]
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct WallMaterialMap {
     #[serde(rename = "n")]
     #[serde_as(as = "OneOrMany<_>")]

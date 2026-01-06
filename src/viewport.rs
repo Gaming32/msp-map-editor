@@ -2,7 +2,7 @@ use crate::assets::{PlayerMarker, missing_atlas, missing_skybox, player};
 use crate::load_file::{FileLoaded, LoadedFile};
 use crate::mesh::{MapMeshMarker, mesh_map};
 use crate::schema::MpsVec2;
-use crate::sync::{EditObject, MapEdit, MapEdited, SelectForEditing};
+use crate::sync::{Direction, EditObject, MapEdit, MapEdited, SelectForEditing};
 use crate::{modifier_key, shortcut_pressed};
 use bevy::asset::io::embedded::GetAssetServer;
 use bevy::asset::{LoadState, RenderAssetUsages};
@@ -76,6 +76,7 @@ impl Plugin for ViewportPlugin {
         .add_systems(Startup, setup_viewport)
         .add_observer(on_file_load)
         .add_observer(on_map_setting_changed)
+        .add_observer(on_remesh_map)
         .add_observer(on_select_for_editing)
         .add_observer(on_pointer_click)
         .add_systems(
@@ -134,6 +135,7 @@ fn setup_viewport(
     commands.insert_resource(GizmoOptions {
         snap_angle: PI / 4.0,
         snap_distance: 1.0,
+        group_targets: false,
         ..Default::default()
     });
 
@@ -169,6 +171,14 @@ struct ViewportObject {
     old_pos: Vec3,
     old_rot: Option<Quat>,
 }
+
+#[derive(Component)]
+struct TemporaryViewportObject;
+#[derive(Component)]
+struct BoundsGizmoMarker(Direction);
+
+#[derive(Event)]
+struct RemeshMap;
 
 #[allow(clippy::too_many_arguments)]
 fn on_file_load(
@@ -214,27 +224,27 @@ fn on_file_load(
         skybox.image = state.skybox.current.clone();
     }
 
-    let start = Instant::now();
-    commands.spawn(mesh_map(
-        &file.file.data,
-        state.atlas_material.clone(),
-        &assets,
-    ));
-    info!("Took {:?} to mesh", start.elapsed());
+    commands.trigger(RemeshMap);
 }
 
 fn on_map_setting_changed(
     on: On<MapEdited>,
+    mut commands: Commands,
     file: Res<LoadedFile>,
-    mut player: Query<(&mut Transform, &mut ViewportObject), With<PlayerMarker>>,
+    mut player: Query<
+        (&mut Transform, &mut ViewportObject),
+        (With<PlayerMarker>, Without<BoundsGizmoMarker>),
+    >,
+    mut bounds_markers: Query<
+        (&mut Transform, &mut ViewportObject, &BoundsGizmoMarker),
+        Without<PlayerMarker>,
+    >,
     mut textures: ResMut<ViewportState>,
 ) {
+    let mut change_player_pos = false;
     match &on.0 {
-        MapEdit::StartingPosition(pos) => {
-            for (mut player, mut viewport_obj) in player.iter_mut() {
-                player.translation = get_player_pos(&file, *pos);
-                viewport_obj.old_pos = player.translation;
-            }
+        MapEdit::StartingPosition(_) => {
+            change_player_pos = true;
         }
         MapEdit::Skybox(_, _) => {
             textures.skybox.outdated = true;
@@ -242,6 +252,47 @@ fn on_map_setting_changed(
         MapEdit::Atlas(_) => {
             textures.atlas.outdated = true;
         }
+        MapEdit::ExpandMap(_, _) | MapEdit::ShrinkMap(_) => {
+            commands.trigger(RemeshMap);
+            change_player_pos = true;
+            for (mut transform, mut object, bounds) in bounds_markers.iter_mut() {
+                transform.translation = get_bounds_gizmo_location(&file, bounds.0);
+                object.old_pos = transform.translation;
+            }
+        }
+    }
+
+    if change_player_pos {
+        for (mut player, mut viewport_obj) in player.iter_mut() {
+            player.translation = get_player_pos(&file, file.file.starting_tile);
+            viewport_obj.old_pos = player.translation;
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn on_remesh_map(
+    _: On<RemeshMap>,
+    mut commands: Commands,
+    old: Query<Entity, With<MapMeshMarker>>,
+    file: Res<LoadedFile>,
+    state: Res<ViewportState>,
+    assets: Res<AssetServer>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+) {
+    let start = Instant::now();
+    commands.spawn(mesh_map(
+        &file.file.data,
+        state.atlas_material.clone(),
+        &assets,
+        &mut materials,
+        &mut meshes,
+    ));
+    info!("Meshed in {:?}", start.elapsed());
+
+    for old in old.iter() {
+        commands.entity(old).despawn();
     }
 }
 
@@ -250,11 +301,16 @@ fn on_select_for_editing(
     mut commands: Commands,
     mut gizmo_options: ResMut<GizmoOptions>,
     current_gizmos: Query<Entity, With<GizmoTarget>>,
+    temporary_gizmos: Query<Entity, With<TemporaryViewportObject>>,
     player: Query<Entity, With<PlayerMarker>>,
+    file: Res<LoadedFile>,
 ) {
     if on.exclusive {
         for gizmo in current_gizmos.iter() {
             commands.entity(gizmo).remove::<GizmoTarget>();
+        }
+        for gizmo in temporary_gizmos.iter() {
+            commands.entity(gizmo).despawn();
         }
     }
 
@@ -274,6 +330,31 @@ fn on_select_for_editing(
                 commands.entity(player).insert(GizmoTarget::default());
             }
         }
+        EditObject::MapSize(side) => {
+            *gizmo_options = GizmoOptions {
+                // One of these modes won't work, but since GizmoOptions are applied globally and not per-gizmo, this is all we can do.
+                gizmo_modes: GizmoMode::TranslateX | GizmoMode::TranslateZ,
+                hotkeys: Some(GizmoHotkeys {
+                    enable_snapping: None,
+                    enable_accurate_mode: None,
+                    ..Default::default()
+                }),
+                snapping: true,
+                ..*gizmo_options
+            };
+            let spawn = get_bounds_gizmo_location(&file, side);
+            commands.spawn((
+                ViewportObject {
+                    editor: EditObject::MapSize(side),
+                    old_pos: spawn,
+                    old_rot: None,
+                },
+                TemporaryViewportObject,
+                BoundsGizmoMarker(side),
+                Transform::from_translation(spawn),
+                GizmoTarget::default(),
+            ));
+        }
         EditObject::None => {}
     }
 }
@@ -287,6 +368,16 @@ fn get_player_pos(file: &LoadedFile, pos: MpsVec2) -> Vec3 {
     Vec3::new(pos.x as f32, tile_y as f32 + 0.375, pos.y as f32)
 }
 
+fn get_bounds_gizmo_location(file: &LoadedFile, side: Direction) -> Vec3 {
+    let (rows, cols) = file.file.data.size();
+    (match side {
+        Direction::West => Vec3::new(0.0, 0.0, rows as f32 / 2.0),
+        Direction::East => Vec3::new(cols as f32, 0.0, rows as f32 / 2.0),
+        Direction::North => Vec3::new(cols as f32 / 2.0, 0.0, 0.0),
+        Direction::South => Vec3::new(cols as f32 / 2.0, 0.0, rows as f32),
+    }) - Vec3::new(0.5, 0.0, 0.5)
+}
+
 fn on_pointer_click(
     on: On<Pointer<Click>>,
     objects: Query<&ViewportObject>,
@@ -297,14 +388,18 @@ fn on_pointer_click(
     if on.button != PointerButton::Primary {
         return;
     }
+    let editor = if let Ok(object) = objects.get(on.entity) {
+        object.editor
+    } else {
+        // TODO: Support selecting mesh
+        return;
+    };
+    if !editor.directly_usable() {
+        return;
+    }
     commands.trigger(SelectForEditing {
-        object: if let Ok(object) = objects.get(on.entity) {
-            object.editor
-        } else {
-            // TODO: Support selecting mesh
-            return;
-        },
-        exclusive: !keys.any_pressed(modifier_key!(Shift)),
+        object: editor,
+        exclusive: editor.exclusive_only() || !keys.any_pressed(modifier_key!(Shift)),
     });
 }
 
@@ -327,18 +422,73 @@ fn update_gizmos(mut options: ResMut<GizmoOptions>, viewport: Res<ViewportTarget
 fn sync_from_gizmos(
     mut commands: Commands,
     mut file: ResMut<LoadedFile>,
-    mut player: Query<(&mut Transform, &mut ViewportObject, &GizmoTarget), With<PlayerMarker>>,
+    mut gizmos: Query<(&mut Transform, &mut ViewportObject, &GizmoTarget)>,
 ) {
-    for (mut player_transform, mut old_transform, gizmo) in player.iter_mut() {
-        let pos = player_transform.translation;
-        if pos != old_transform.old_pos {
-            let in_bounds_pos = file.in_bounds(MpsVec2::new(pos.x as i32, pos.z as i32));
-            if gizmo.is_active() {
-                player_transform.translation = get_player_pos(&file, in_bounds_pos);
-            } else {
-                file.edit_map(&mut commands, MapEdit::StartingPosition(in_bounds_pos));
-                old_transform.old_pos = pos;
+    for (mut transform, mut object, gizmo) in gizmos.iter_mut() {
+        match object.editor {
+            EditObject::StartingPosition => {
+                let pos = transform.translation;
+                if pos == object.old_pos {
+                    continue;
+                }
+                let in_bounds_pos = file.in_bounds(MpsVec2::new(pos.x as i32, pos.z as i32));
+                if gizmo.is_active() {
+                    transform.translation = get_player_pos(&file, in_bounds_pos);
+                } else {
+                    file.edit_map(&mut commands, MapEdit::StartingPosition(in_bounds_pos));
+                    object.old_pos = pos;
+                }
             }
+            EditObject::MapSize(side) => {
+                let x_change = (transform.translation.x - object.old_pos.x).round() as i32;
+                let y_change = (transform.translation.z - object.old_pos.z).round() as i32;
+                if x_change == 0 && y_change == 0 {
+                    continue;
+                }
+                let expand = MapEdit::ExpandMap(side, None);
+                let shrink = MapEdit::ShrinkMap(side);
+                match side {
+                    Direction::West | Direction::North => {
+                        let axis = if side == Direction::West {
+                            x_change
+                        } else {
+                            y_change
+                        };
+                        if axis < 0 {
+                            for _ in 0..axis.abs() {
+                                file.edit_map(&mut commands, expand.clone());
+                            }
+                        } else if axis > 0 {
+                            for _ in 0..axis {
+                                file.edit_map(&mut commands, shrink.clone());
+                            }
+                        }
+                        transform.translation = object.old_pos;
+                    }
+                    Direction::East | Direction::South => {
+                        let axis = if side == Direction::East {
+                            x_change
+                        } else {
+                            y_change
+                        };
+                        if axis > 0 {
+                            for _ in 0..axis {
+                                file.edit_map(&mut commands, expand.clone());
+                            }
+                        } else if axis < 0 {
+                            for _ in 0..axis.abs() {
+                                file.edit_map(&mut commands, shrink.clone());
+                            }
+                        }
+                        if axis != 0 {
+                            object.old_pos = transform.translation;
+                        } else {
+                            transform.translation = object.old_pos;
+                        }
+                    }
+                }
+            }
+            EditObject::None => {}
         }
     }
 }
