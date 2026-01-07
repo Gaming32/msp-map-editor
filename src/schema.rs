@@ -113,6 +113,10 @@ impl MpsVec2 {
             y: self.y.max(other.y),
         }
     }
+
+    pub fn as_array(self) -> [i32; 2] {
+        [self.x, self.y]
+    }
 }
 
 impl AddAssign for MpsVec2 {
@@ -133,13 +137,15 @@ impl Sub for MpsVec2 {
     }
 }
 
-impl From<MpsVec2> for MpsVec3 {
+impl From<MpsVec2> for [i32; 2] {
     fn from(val: MpsVec2) -> Self {
-        MpsVec3 {
-            x: val.x as f64,
-            y: 0.0,
-            z: val.y as f64,
-        }
+        val.as_array()
+    }
+}
+
+impl From<[i32; 2]> for MpsVec2 {
+    fn from(value: [i32; 2]) -> Self {
+        Self::new(value[0], value[1])
     }
 }
 
@@ -161,6 +167,16 @@ impl AddAssign for MpsVec3 {
         self.x += rhs.x;
         self.y += rhs.y;
         self.z += rhs.z;
+    }
+}
+
+impl From<MpsVec2> for MpsVec3 {
+    fn from(val: MpsVec2) -> Self {
+        MpsVec3 {
+            x: val.x as f64,
+            y: 0.0,
+            z: val.y as f64,
+        }
     }
 }
 
@@ -263,6 +279,54 @@ impl TileHeight {
         match self {
             Self::Flat { height, .. } => height,
             Self::Ramp { height, .. } => height.pos.max(height.neg),
+        }
+    }
+
+    pub fn pos_height(self) -> f64 {
+        match self {
+            Self::Flat { height, .. } => height,
+            Self::Ramp { height, .. } => height.pos,
+        }
+    }
+
+    pub fn neg_height(self) -> f64 {
+        match self {
+            Self::Flat { height, .. } => height,
+            Self::Ramp { height, .. } => height.neg,
+        }
+    }
+
+    pub fn with_pos_height(self, pos: f64) -> Self {
+        match self {
+            Self::Flat { .. } => panic!("with_pos_height called on TileHeight::flat"),
+            Self::Ramp { height, .. } => Self::Ramp {
+                ramp: MustBeBool,
+                height: TileRamp { pos, ..height },
+            },
+        }
+    }
+
+    pub fn with_neg_height(self, neg: f64) -> Self {
+        match self {
+            Self::Flat { .. } => panic!("with_neg_height called on TileHeight::flat"),
+            Self::Ramp { height, .. } => Self::Ramp {
+                ramp: MustBeBool,
+                height: TileRamp { neg, ..height },
+            },
+        }
+    }
+
+    pub fn with_flipped_heights(self) -> Self {
+        match self {
+            Self::Flat { .. } => self,
+            Self::Ramp { height, .. } => Self::Ramp {
+                ramp: MustBeBool,
+                height: TileRamp {
+                    pos: height.neg,
+                    neg: height.pos,
+                    ..height
+                },
+            },
         }
     }
 

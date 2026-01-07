@@ -1,5 +1,5 @@
 use crate::TITLE;
-use crate::schema::{MapFile, MpsVec2, Textures, TileData};
+use crate::schema::{MapFile, MpsVec2, Textures, TileData, TileHeight};
 use crate::sync::{Direction, MapEdit, MapEdited};
 use crate::tile_range::TileRange;
 use crate::ui::UiState;
@@ -37,6 +37,19 @@ impl LoadedFile {
         } else {
             pos
         }
+    }
+
+    pub fn change_heights(
+        &mut self,
+        commands: &mut Commands,
+        range: TileRange,
+        editor: impl Fn(TileHeight) -> TileHeight,
+    ) -> bool {
+        let new_heights = range
+            .into_iter()
+            .map(|x| editor(self.file[x].height))
+            .collect();
+        self.edit_map(commands, MapEdit::ChangeHeight(range, new_heights))
     }
 
     pub fn edit_map(&mut self, commands: &mut Commands, edit: MapEdit) -> bool {

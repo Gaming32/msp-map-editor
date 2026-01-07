@@ -4,7 +4,7 @@ use crate::load_file::{
     FileLoaded, LoadedFile, LoadedTexture, MapFileDialog, new_file, open_file, save_file,
     save_file_as,
 };
-use crate::schema::{CubeMap, TileRampDirection};
+use crate::schema::{CubeMap, TileHeight, TileRampDirection};
 use crate::sync::{Direction, PresetView};
 use crate::sync::{EditObject, MapEdit, MapEdited, SelectForEditing};
 use crate::viewport::ViewportTarget;
@@ -20,6 +20,7 @@ use bevy_file_dialog::{DialogFilePicked, FileDialogExt, FileDialogPlugin};
 use bevy_mod_imgui::prelude::*;
 use imgui::Image as ImguiImage;
 use itertools::Itertools;
+use monostate::MustBeBool;
 use std::mem;
 use std::time::Duration;
 
@@ -372,9 +373,13 @@ fn draw_imgui(
                 exclusive: true,
             });
         }
-        let mut starting_tile = file.file.starting_tile;
-        if ui.input_int2("##Starting Tile", &mut starting_tile).build() {
-            starting_tile = file.in_bounds(starting_tile);
+        let mut starting_tile = file.file.starting_tile.as_array();
+        if ui
+            .input_scalar_n("##Starting Tile", &mut starting_tile)
+            .step(1)
+            .build()
+        {
+            let starting_tile = file.in_bounds(starting_tile.into());
             file.edit_map(&mut commands, MapEdit::StartingPosition(starting_tile));
         }
 
@@ -479,7 +484,7 @@ fn draw_imgui(
 
             ui.spacing();
 
-            {
+            let ramp_type = {
                 let ramp_type = range
                     .into_iter()
                     .map(|x| file.file[x].height.ramp_dir())
@@ -510,11 +515,83 @@ fn draw_imgui(
                     .into()
                 });
                 if changed && let Some(new_type) = options[index] {
-                    let new_types = range
+                    file.change_heights(&mut commands, range, |h| h.with_ramp_dir(new_type));
+                    Some(new_type)
+                } else {
+                    ramp_type
+                }
+            };
+
+            let height_input = |label, mut value: Option<_>| {
+                if let Some(value) = value.as_mut() {
+                    if ui
+                        .input_scalar(label, value)
+                        .step(0.25)
+                        .step_fast(1.0)
+                        .display_format("%.2f")
+                        .build()
+                    {
+                        Some(*value)
+                    } else {
+                        None
+                    }
+                } else {
+                    let mut buf = "<multiple values>".to_string();
+                    if ui.input_text(label, &mut buf).build() {
+                        buf.parse().ok()
+                    } else {
+                        None
+                    }
+                }
+            };
+            match ramp_type {
+                None => {}
+                Some(None) => {
+                    let height = range
                         .into_iter()
-                        .map(|x| file.file[x].height.with_ramp_dir(new_type))
-                        .collect();
-                    file.edit_map(&mut commands, MapEdit::ChangeHeight(range, new_types));
+                        .map(|x| file.file[x].height.center_height())
+                        .all_equal_value()
+                        .ok();
+                    if let Some(height) = height_input("Height", height) {
+                        file.edit_map(
+                            &mut commands,
+                            MapEdit::ChangeHeight(
+                                range,
+                                vec![
+                                    TileHeight::Flat {
+                                        ramp: MustBeBool,
+                                        height,
+                                    };
+                                    range.area()
+                                ],
+                            ),
+                        );
+                    }
+                }
+                Some(Some(dir)) => {
+                    let (neg_label, pos_label) = match dir {
+                        TileRampDirection::Horizontal => ("Left height", "Right height"),
+                        TileRampDirection::Vertical => ("Front height", "Back height"),
+                    };
+                    let neg_height = range
+                        .into_iter()
+                        .map(|x| file.file[x].height.neg_height())
+                        .all_equal_value()
+                        .ok();
+                    let pos_height = range
+                        .into_iter()
+                        .map(|x| file.file[x].height.pos_height())
+                        .all_equal_value()
+                        .ok();
+                    if let Some(height) = height_input(neg_label, neg_height) {
+                        file.change_heights(&mut commands, range, |h| h.with_neg_height(height));
+                    }
+                    if let Some(height) = height_input(pos_label, pos_height) {
+                        file.change_heights(&mut commands, range, |h| h.with_pos_height(height));
+                    }
+                    if ui.button("Flip") {
+                        file.change_heights(&mut commands, range, TileHeight::with_flipped_heights);
+                    }
                 }
             }
         } else {

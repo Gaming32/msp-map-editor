@@ -622,26 +622,12 @@ fn get_player_cam_transform(player_pos: Vec3) -> LookTransform {
     }
 }
 
-fn keyboard_handler(
-    keys: Res<ButtonInput<KeyCode>>,
-    mut commands: Commands,
-    file: Res<LoadedFile>,
-) {
+fn keyboard_handler(keys: Res<ButtonInput<KeyCode>>, mut commands: Commands) {
     if shortcut_pressed!(keys, Alt + KeyA) {
         commands.trigger(SelectForEditing {
             object: EditObject::None,
             exclusive: true,
         })
-    } else if shortcut_pressed!(keys, KeyA) {
-        let data = &file.file.data;
-        commands.trigger(SelectForEditing {
-            object: EditObject::Tile(MpsVec2::new(0, 0)),
-            exclusive: true,
-        });
-        commands.trigger(SelectForEditing {
-            object: EditObject::Tile(MpsVec2::new(data.cols() as i32 - 1, data.rows() as i32 - 1)),
-            exclusive: false,
-        });
     }
 }
 

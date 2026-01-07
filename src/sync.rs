@@ -1,5 +1,5 @@
 use crate::load_file::LoadedTexture;
-use crate::schema::{MpsVec2, MpsVec3, TileData, TileHeight};
+use crate::schema::{MpsVec2, TileData, TileHeight};
 use crate::tile_range::TileRange;
 use bevy::prelude::Event;
 
@@ -60,42 +60,4 @@ pub enum PresetView {
     Player,
     Center,
     TopDown,
-}
-
-impl From<MpsVec2> for mint::Vector2<i32> {
-    fn from(value: MpsVec2) -> Self {
-        Self {
-            x: value.x,
-            y: value.y,
-        }
-    }
-}
-
-impl From<mint::Vector2<i32>> for MpsVec2 {
-    fn from(value: mint::Vector2<i32>) -> Self {
-        Self {
-            x: value.x,
-            y: value.y,
-        }
-    }
-}
-
-impl From<MpsVec3> for mint::Vector3<f64> {
-    fn from(value: MpsVec3) -> Self {
-        Self {
-            x: value.x,
-            y: value.y,
-            z: value.z,
-        }
-    }
-}
-
-impl From<mint::Vector3<f64>> for MpsVec3 {
-    fn from(value: mint::Vector3<f64>) -> Self {
-        Self {
-            x: value.x,
-            y: value.y,
-            z: value.z,
-        }
-    }
 }
