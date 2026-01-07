@@ -3,7 +3,8 @@ use crate::assets::key_gate;
 use crate::schema::{
     Connection, ConnectionCondition, MpsMaterial, TileData, TileHeight, TileRampDirection,
 };
-use crate::sync::{Direction, TileRange};
+use crate::sync::Direction;
+use crate::tile_range::TileRange;
 use bevy::asset::RenderAssetUsages;
 use bevy::light::{NotShadowCaster, NotShadowReceiver};
 use bevy::mesh::{Indices, PrimitiveTopology};

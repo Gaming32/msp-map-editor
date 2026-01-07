@@ -1,5 +1,6 @@
 use crate::load_file::LoadedTexture;
-use crate::schema::{MpsVec2, MpsVec3, TileData};
+use crate::schema::{MpsVec2, MpsVec3, TileData, TileHeight};
+use crate::tile_range::TileRange;
 use bevy::prelude::Event;
 
 #[derive(Event, Clone, Debug)]
@@ -13,6 +14,7 @@ pub enum MapEdit {
     ExpandMap(Direction, Option<Vec<TileData>>),
     ShrinkMap(Direction),
     AdjustHeight(TileRange, f64),
+    ChangeHeight(TileRange, Vec<TileHeight>),
 }
 
 #[derive(Event, Copy, Clone, Debug)]
@@ -58,12 +60,6 @@ pub enum PresetView {
     Player,
     Center,
     TopDown,
-}
-
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub struct TileRange {
-    pub start: MpsVec2,
-    pub end: MpsVec2,
 }
 
 impl From<MpsVec2> for mint::Vector2<i32> {

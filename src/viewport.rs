@@ -2,9 +2,8 @@ use crate::assets::{PlayerMarker, missing_atlas, missing_skybox, player};
 use crate::load_file::{FileLoaded, LoadedFile};
 use crate::mesh::{MapMeshMarker, mesh_map, mesh_top_highlights};
 use crate::schema::MpsVec2;
-use crate::sync::{
-    Direction, EditObject, MapEdit, MapEdited, PresetView, SelectForEditing, TileRange,
-};
+use crate::sync::{Direction, EditObject, MapEdit, MapEdited, PresetView, SelectForEditing};
+use crate::tile_range::TileRange;
 use crate::{modifier_key, shortcut_pressed};
 use bevy::asset::io::embedded::GetAssetServer;
 use bevy::asset::{LoadState, RenderAssetUsages};
@@ -261,6 +260,8 @@ fn on_map_edited(
     mut textures: ResMut<ViewportState>,
 ) {
     let mut change_player_pos = false;
+    let mut change_tiles_gizmos = false;
+
     match &on.0 {
         MapEdit::StartingPosition(_) => {
             change_player_pos = true;
@@ -279,15 +280,10 @@ fn on_map_edited(
                 object.old_pos = transform.translation;
             }
         }
-        MapEdit::AdjustHeight(_, _) => {
+        MapEdit::AdjustHeight(_, _) | MapEdit::ChangeHeight(_, _) => {
             commands.trigger(RemeshMap);
             change_player_pos = true;
-            if let Ok((mut transform, mut object, gizmo)) = tiles_gizmo.single_mut() {
-                let offset = get_tile_gizmo_mesh_offset(gizmo.0, &file);
-                transform.translation = offset;
-                object.old_pos = offset;
-                tiles_gizmo_child.single_mut().unwrap().translation = -offset;
-            }
+            change_tiles_gizmos = true;
         }
     }
 
@@ -296,6 +292,14 @@ fn on_map_edited(
             player.translation = get_player_pos(&file, file.file.starting_tile);
             viewport_obj.old_pos = player.translation;
         }
+    }
+
+    if change_tiles_gizmos && let Ok((mut transform, mut object, gizmo)) = tiles_gizmo.single_mut()
+    {
+        let offset = get_tile_gizmo_mesh_offset(gizmo.0, &file);
+        transform.translation = offset;
+        object.old_pos = offset;
+        tiles_gizmo_child.single_mut().unwrap().translation = -offset;
     }
 }
 
@@ -347,7 +351,7 @@ fn on_select_for_editing(
         Without<TilesGizmoMesh>,
     >,
     mut tiles_gizmo_children: Query<(&mut Transform, &mut TilesGizmoMesh)>,
-    file: Res<LoadedFile>,
+    mut file: ResMut<LoadedFile>,
 ) {
     if on.exclusive {
         for gizmo in current_gizmos.iter() {
@@ -355,6 +359,9 @@ fn on_select_for_editing(
         }
         for gizmo in temporary_gizmos.iter() {
             commands.entity(gizmo).despawn();
+        }
+        if file.selected_range.is_some() {
+            file.selected_range = None;
         }
     }
 
@@ -436,6 +443,8 @@ fn on_select_for_editing(
                         };
                     }
                 }
+                file.selected_range = Some(tiles.0);
+
                 let mesh_offset = get_tile_gizmo_mesh_offset(tiles.0, &file);
                 transform.translation = mesh_offset;
                 object.old_pos = mesh_offset;
@@ -448,6 +457,8 @@ fn on_select_for_editing(
                     start: new_pos,
                     end: new_pos,
                 };
+                file.selected_range = Some(range);
+
                 let mesh_offset = get_tile_gizmo_mesh_offset(range, &file);
                 commands.spawn((
                     ViewportObject {
@@ -522,9 +533,6 @@ fn on_pointer_click(
     } else if meshes.contains(on.entity) {
         let coord_vec = on.hit.position.unwrap() - on.hit.normal.unwrap() * 0.001;
         let coord = MpsVec2::new(coord_vec.x.round() as i32, coord_vec.z.round() as i32);
-        // if let Ok(gizmo) = already_selected.single() && coord == gizmo.0.start {
-        //     // XXX: Hack fix because sometimes interacting with the gizmo triggers a click to the first tile.
-        // }
         EditObject::Tile(coord)
     } else {
         return;
@@ -614,12 +622,26 @@ fn get_player_cam_transform(player_pos: Vec3) -> LookTransform {
     }
 }
 
-fn keyboard_handler(keys: Res<ButtonInput<KeyCode>>, mut commands: Commands) {
+fn keyboard_handler(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut commands: Commands,
+    file: Res<LoadedFile>,
+) {
     if shortcut_pressed!(keys, Alt + KeyA) {
         commands.trigger(SelectForEditing {
             object: EditObject::None,
             exclusive: true,
         })
+    } else if shortcut_pressed!(keys, KeyA) {
+        let data = &file.file.data;
+        commands.trigger(SelectForEditing {
+            object: EditObject::Tile(MpsVec2::new(0, 0)),
+            exclusive: true,
+        });
+        commands.trigger(SelectForEditing {
+            object: EditObject::Tile(MpsVec2::new(data.cols() as i32 - 1, data.rows() as i32 - 1)),
+            exclusive: false,
+        });
     }
 }
 

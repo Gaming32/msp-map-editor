@@ -4,7 +4,7 @@ use crate::load_file::{
     FileLoaded, LoadedFile, LoadedTexture, MapFileDialog, new_file, open_file, save_file,
     save_file_as,
 };
-use crate::schema::CubeMap;
+use crate::schema::{CubeMap, TileRampDirection};
 use crate::sync::{Direction, PresetView};
 use crate::sync::{EditObject, MapEdit, MapEdited, SelectForEditing};
 use crate::viewport::ViewportTarget;
@@ -19,6 +19,7 @@ use bevy::window::{PrimaryWindow, WindowCloseRequested};
 use bevy_file_dialog::{DialogFilePicked, FileDialogExt, FileDialogPlugin};
 use bevy_mod_imgui::prelude::*;
 use imgui::Image as ImguiImage;
+use itertools::Itertools;
 use std::mem;
 use std::time::Duration;
 
@@ -152,7 +153,10 @@ fn on_map_edited(on: On<MapEdited>, mut state: ResMut<UiState>) {
                 pick: SettingImagePick::Atlas,
             });
         }
-        MapEdit::ExpandMap(_, _) | MapEdit::ShrinkMap(_) | MapEdit::AdjustHeight(_, _) => {}
+        MapEdit::ExpandMap(_, _)
+        | MapEdit::ShrinkMap(_)
+        | MapEdit::AdjustHeight(_, _)
+        | MapEdit::ChangeHeight(_, _) => {}
     }
 }
 
@@ -192,7 +196,7 @@ fn draw_imgui(
     mut context: NonSendMut<ImguiContext>,
     mut state: ResMut<UiState>,
     time: Res<Time>,
-    mut current_open_file: ResMut<LoadedFile>,
+    mut file: ResMut<LoadedFile>,
     mut commands: Commands,
     window_query: Query<Entity, With<PrimaryWindow>>,
     mut viewport_target: ResMut<ViewportTarget>,
@@ -276,7 +280,7 @@ fn draw_imgui(
             }
 
             if ui.menu_item_config("Save").shortcut("Ctrl+S").build() {
-                save_file(&mut commands, &mut current_open_file);
+                save_file(&mut commands, &mut file);
             }
 
             if ui
@@ -300,19 +304,19 @@ fn draw_imgui(
             if ui
                 .menu_item_config("Undo")
                 .shortcut("Ctrl+Z")
-                .enabled(current_open_file.can_undo())
+                .enabled(file.can_undo())
                 .build()
             {
-                current_open_file.undo(&mut commands);
+                file.undo(&mut commands);
             }
 
             if ui
                 .menu_item_config("Redo")
                 .shortcut("Ctrl+Shift+Z")
-                .enabled(current_open_file.can_redo())
+                .enabled(file.can_redo())
                 .build()
             {
-                current_open_file.redo(&mut commands);
+                file.redo(&mut commands);
             }
         });
 
@@ -368,18 +372,18 @@ fn draw_imgui(
                 exclusive: true,
             });
         }
-        let mut starting_tile = current_open_file.file.starting_tile;
+        let mut starting_tile = file.file.starting_tile;
         if ui.input_int2("##Starting Tile", &mut starting_tile).build() {
-            starting_tile = current_open_file.in_bounds(starting_tile);
-            current_open_file.edit_map(&mut commands, MapEdit::StartingPosition(starting_tile));
+            starting_tile = file.in_bounds(starting_tile);
+            file.edit_map(&mut commands, MapEdit::StartingPosition(starting_tile));
         }
 
         ui.spacing();
 
         ui.text(format!(
             "Map size: {}x{}",
-            current_open_file.file.data.cols(),
-            current_open_file.file.data.rows()
+            file.file.data.cols(),
+            file.file.data.rows()
         ));
         if ui.button("Edit map bounds") {
             commands.trigger(SelectForEditing {
@@ -410,7 +414,7 @@ fn draw_imgui(
                 .push()
         {
             if ui.button("Reload##Reload Atlas") {
-                let texture = &current_open_file.loaded_textures.atlas;
+                let texture = &file.loaded_textures.atlas;
                 assets.reload(texture.path.clone());
                 commands.trigger(MapEdited(MapEdit::Atlas(texture.clone())));
             }
@@ -448,7 +452,7 @@ fn draw_imgui(
                 }
                 ui.same_line();
                 if ui.image_button(format!("Reload {label}"), reload_icon, [16.0; 2]) {
-                    let texture = &current_open_file.loaded_textures.skybox[index];
+                    let texture = &file.loaded_textures.skybox[index];
                     assets.reload(texture.path.clone());
                     commands.trigger(MapEdited(MapEdit::Skybox(index, texture.clone())));
                 }
@@ -459,11 +463,67 @@ fn draw_imgui(
     });
 
     ui.window("Tile settings").collapsible(true).build(|| {
-        ui.text("No tile selected");
+        if let Some(range) = file.selected_range {
+            let single_tile = (range.start == range.end).then_some(range.start);
+            if single_tile.is_some() {
+                ui.text(format!(
+                    "Selected tile ({}, {})",
+                    range.start.x, range.start.y
+                ));
+            } else {
+                ui.text(format!(
+                    "Selected {} tiles",
+                    (range.end.x - range.start.x + 1) * (range.end.y - range.start.y + 1)
+                ));
+            }
+
+            ui.spacing();
+
+            {
+                let ramp_type = range
+                    .into_iter()
+                    .map(|x| file.file[x].height.ramp_dir())
+                    .all_equal_value()
+                    .ok();
+                let options: &[_] = if ramp_type.is_some() {
+                    &[
+                        Some(None),
+                        Some(Some(TileRampDirection::Horizontal)),
+                        Some(Some(TileRampDirection::Vertical)),
+                    ]
+                } else {
+                    &[
+                        None,
+                        Some(None),
+                        Some(Some(TileRampDirection::Horizontal)),
+                        Some(Some(TileRampDirection::Vertical)),
+                    ]
+                };
+                let mut index = options.iter().position(|&x| x == ramp_type).unwrap();
+                let changed = ui.combo("Height type", &mut index, options, |&value| {
+                    match value {
+                        None => "<multiple values>",
+                        Some(None) => "Flat",
+                        Some(Some(TileRampDirection::Horizontal)) => "Horizontal Ramp",
+                        Some(Some(TileRampDirection::Vertical)) => "Vertical Ramp",
+                    }
+                    .into()
+                });
+                if changed && let Some(new_type) = options[index] {
+                    let new_types = range
+                        .into_iter()
+                        .map(|x| file.file[x].height.with_ramp_dir(new_type))
+                        .collect();
+                    file.edit_map(&mut commands, MapEdit::ChangeHeight(range, new_types));
+                }
+            }
+        } else {
+            ui.text("No tile selected");
+        }
     });
 
     match mem::take(&mut state.pending_close_state) {
-        PendingCloseState::PendingUi(action) if current_open_file.dirty => {
+        PendingCloseState::PendingUi(action) if file.dirty => {
             ui.open_popup("Are you sure?");
             state.pending_close_state = PendingCloseState::PendingUserInput(action);
         }
@@ -487,7 +547,7 @@ fn draw_imgui(
         }
         ui.same_line();
         if ui.button("Save") {
-            save_file(&mut commands, &mut current_open_file);
+            save_file(&mut commands, &mut file);
             close = true;
         }
 

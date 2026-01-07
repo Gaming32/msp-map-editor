@@ -7,6 +7,7 @@ mod mesh;
 mod schema;
 mod shortcuts;
 mod sync;
+mod tile_range;
 mod ui;
 mod utils;
 mod viewport;

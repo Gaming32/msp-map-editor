@@ -1,6 +1,7 @@
 use crate::TITLE;
 use crate::schema::{MapFile, MpsVec2, Textures, TileData};
 use crate::sync::{Direction, MapEdit, MapEdited};
+use crate::tile_range::TileRange;
 use crate::ui::UiState;
 use bevy::image::{ImageFormatSetting, ImageLoaderSettings, ImageSampler};
 use bevy::prelude::*;
@@ -8,6 +9,7 @@ use bevy::tasks::AsyncComputeTaskPool;
 use bevy::window::PrimaryWindow;
 use bevy_file_dialog::DialogFileLoaded;
 use bevy_file_dialog::prelude::*;
+use itertools::Itertools;
 use native_dialog::MessageLevel;
 use relative_path::{PathExt, RelativePathBuf};
 use serde::Serialize;
@@ -25,6 +27,7 @@ pub struct LoadedFile {
     pub loaded_textures: Textures<LoadedTexture>,
     pub history: Vec<HistoryItem>,
     pub history_index: usize,
+    pub selected_range: Option<TileRange>,
 }
 
 impl LoadedFile {
@@ -78,7 +81,11 @@ impl LoadedFile {
                         .collect(),
                 }),
             ),
-            MapEdit::AdjustHeight(range, height) => MapEdit::AdjustHeight(range, -height),
+            MapEdit::AdjustHeight(range, change) => MapEdit::AdjustHeight(range, -change),
+            MapEdit::ChangeHeight(range, _) => MapEdit::ChangeHeight(
+                range,
+                range.into_iter().map(|pos| self.file[pos].height).collect(),
+            ),
         };
         if edit == reversed {
             return false;
@@ -155,7 +162,17 @@ impl LoadedFile {
                     self.file.data.remove_row(self.file.data.rows() - 1);
                 }
             },
-            MapEdit::AdjustHeight(range, height) => self.file.adjust_height(*range, *height),
+            MapEdit::AdjustHeight(range, change) => self.file.adjust_height(*range, *change),
+            MapEdit::ChangeHeight(range, new) => {
+                assert_eq!(
+                    range.area(),
+                    new.len(),
+                    "MapEdit::ChangeHeight params have differing sizes"
+                );
+                for (pos, height) in range.into_iter().zip(new) {
+                    self.file[pos].height = *height;
+                }
+            }
         }
 
         if !self.dirty {
@@ -397,6 +414,7 @@ fn handle_load(
     open_file.path = Some(path);
     open_file.history.clear();
     open_file.history_index = 0;
+    open_file.selected_range = None;
     true
 }
 

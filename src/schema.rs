@@ -1,4 +1,4 @@
-use crate::sync::TileRange;
+use crate::tile_range::TileRange;
 use crate::utils::grid_as_vec_vec;
 use enum_map::{Enum, EnumMap};
 use grid::{Grid, grid};
@@ -7,7 +7,7 @@ use relative_path::RelativePathBuf;
 use serde::{Deserialize, Serialize};
 use serde_with::OneOrMany;
 use serde_with::serde_as;
-use std::ops::{AddAssign, Sub};
+use std::ops::{AddAssign, Index, IndexMut, Sub};
 use strum::IntoStaticStr;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -69,6 +69,20 @@ impl MapFile {
                 }
             }
         }
+    }
+}
+
+impl Index<MpsVec2> for MapFile {
+    type Output = TileData;
+
+    fn index(&self, index: MpsVec2) -> &Self::Output {
+        &self.data[(index.y as usize, index.x as usize)]
+    }
+}
+
+impl IndexMut<MpsVec2> for MapFile {
+    fn index_mut(&mut self, index: MpsVec2) -> &mut Self::Output {
+        &mut self.data[(index.y as usize, index.x as usize)]
     }
 }
 
@@ -256,6 +270,35 @@ impl TileHeight {
         self == Self::Flat {
             ramp: MustBeBool,
             height: other,
+        }
+    }
+
+    pub fn ramp_dir(self) -> Option<TileRampDirection> {
+        match self {
+            Self::Flat { .. } => None,
+            Self::Ramp { height, .. } => Some(height.dir),
+        }
+    }
+
+    pub fn with_ramp_dir(self, dir: Option<TileRampDirection>) -> Self {
+        match (self, dir) {
+            (Self::Flat { height, .. }, Some(dir)) => Self::Ramp {
+                ramp: MustBeBool,
+                height: TileRamp {
+                    dir,
+                    pos: height,
+                    neg: height,
+                },
+            },
+            (Self::Flat { .. }, None) => self,
+            (Self::Ramp { height, .. }, Some(dir)) => Self::Ramp {
+                ramp: MustBeBool,
+                height: TileRamp { dir, ..height },
+            },
+            (Self::Ramp { .. }, None) => Self::Flat {
+                ramp: MustBeBool,
+                height: self.center_height(),
+            },
         }
     }
 }
