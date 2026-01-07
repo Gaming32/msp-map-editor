@@ -152,7 +152,7 @@ fn on_map_edited(on: On<MapEdited>, mut state: ResMut<UiState>) {
                 pick: SettingImagePick::Atlas,
             });
         }
-        MapEdit::ExpandMap(_, _) | MapEdit::ShrinkMap(_) => {}
+        MapEdit::ExpandMap(_, _) | MapEdit::ShrinkMap(_) | MapEdit::AdjustHeight(_, _) => {}
     }
 }
 
@@ -328,6 +328,8 @@ fn draw_imgui(
             if ui.menu_item_config("Top-down").shortcut("Num 7").build() {
                 commands.trigger(PresetView::TopDown);
             }
+
+            // TODO: Selected
         });
     });
 

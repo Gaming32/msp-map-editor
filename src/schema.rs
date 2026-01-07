@@ -1,3 +1,4 @@
+use crate::sync::TileRange;
 use crate::utils::grid_as_vec_vec;
 use enum_map::{Enum, EnumMap};
 use grid::{Grid, grid};
@@ -49,6 +50,25 @@ impl MapFile {
             self.data.cols().try_into().ok()?,
             self.data.rows().try_into().ok()?,
         ))
+    }
+
+    pub fn adjust_height(&mut self, range: TileRange, change: f64) {
+        for y in range.start.y..=range.end.y {
+            let y = y as usize;
+            for x in range.start.x..=range.end.x {
+                let x = x as usize;
+                match &mut self.data[(y, x)].height {
+                    TileHeight::Flat { height, .. } => *height += change,
+                    TileHeight::Ramp {
+                        height: TileRamp { pos, neg, .. },
+                        ..
+                    } => {
+                        *pos += change;
+                        *neg += change;
+                    }
+                }
+            }
+        }
     }
 }
 

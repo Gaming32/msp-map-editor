@@ -3,7 +3,7 @@ use crate::assets::key_gate;
 use crate::schema::{
     Connection, ConnectionCondition, MpsMaterial, TileData, TileHeight, TileRampDirection,
 };
-use crate::sync::Direction;
+use crate::sync::{Direction, TileRange};
 use bevy::asset::RenderAssetUsages;
 use bevy::light::{NotShadowCaster, NotShadowReceiver};
 use bevy::mesh::{Indices, PrimitiveTopology};
@@ -48,21 +48,10 @@ pub fn mesh_map(
         if tile.height == TileHeight::default() {
             continue;
         }
-        
-        let xf = x as f32;
-        let yf = y as f32;
-        let uv = tile.material.to_uv_coords();
 
+        internal_mesh_top(&mut state, x, y, tile, 0.0);
         match tile.height {
             TileHeight::Flat { height, .. } => {
-                let height32 = height as f32;
-                let index_start = state.positions.len() as u32;
-                state.positions.push([xf - 0.5, height32, yf - 0.5]);
-                state.positions.push([xf + 0.5, height32, yf - 0.5]);
-                state.positions.push([xf - 0.5, height32, yf + 0.5]);
-                state.positions.push([xf + 0.5, height32, yf + 0.5]);
-                state.push_quad_uv_indices(uv, index_start);
-                
                 if x == 0 || height > map[(y, x - 1)].height.min_height() {
                     mesh_wall(&mut state, x, y, tile, Direction::West);
                 }
@@ -77,21 +66,7 @@ pub fn mesh_map(
                 }
             }
             TileHeight::Ramp { height, .. } => {
-                let index_start = state.positions.len() as u32;
                 let dir_v = height.dir == TileRampDirection::Vertical;
-                let pos = height.pos as f32;
-                let neg = height.neg as f32;
-
-                state.positions.push([xf - 0.5, neg, yf - 0.5]);
-                state
-                    .positions
-                    .push([xf + 0.5, if dir_v { neg } else { pos }, yf - 0.5]);
-                state
-                    .positions
-                    .push([xf - 0.5, if dir_v { pos } else { neg }, yf + 0.5]);
-                state.positions.push([xf + 0.5, pos, yf + 0.5]);
-                state.push_quad_uv_indices(uv, index_start);
-
                 let height = tile.height.center_height();
                 if dir_v && (x == 0 || height > map[(y, x - 1)].height.center_height()) {
                     mesh_wall(&mut state, x, y, tile, Direction::West);
@@ -111,6 +86,8 @@ pub fn mesh_map(
             }
         }
 
+        let xf = x as f32;
+        let yf = y as f32;
         let center_height = tile.height.center_height();
 
         // Blocks
@@ -396,7 +373,10 @@ pub fn mesh_map(
                         floor.positions.push([x2, 0.0, -0.5]);
                         floor.positions.push([-0.5, 0.0, y2]);
                         floor.positions.push([x2, 0.0, y2]);
-                        floor.push_quad_uv_indices((0.0, 0.0, map.cols() as f32, map.rows() as f32), 0);
+                        floor.push_quad_uv_indices(
+                            (0.0, 0.0, map.cols() as f32, map.rows() as f32),
+                            0,
+                        );
                         floor.into_mesh()
                     })),
                     material: MeshMaterial3d(materials.add(StandardMaterial {
@@ -413,6 +393,38 @@ pub fn mesh_map(
                 NotShadowReceiver,
             )),
         )),
+    )
+}
+
+pub fn mesh_top_highlights(
+    map: &Grid<TileData>,
+    tile_range: TileRange,
+    materials: &mut Assets<StandardMaterial>,
+    meshes: &mut Assets<Mesh>,
+) -> impl Bundle {
+    let mut state = State::new(map);
+
+    for y in tile_range.start.y..=tile_range.end.y {
+        let y = y as usize;
+        for x in tile_range.start.x..=tile_range.end.x {
+            let x = x as usize;
+            let tile = &map[(y, x)];
+            internal_mesh_top(&mut state, x, y, tile, 0.01);
+        }
+    }
+
+    (
+        Mesh3d(meshes.add(state.into_mesh())),
+        MeshMaterial3d(materials.add(StandardMaterial {
+            base_color: Srgba::rgba_u8(0x54, 0xAF, 0xE7, 0x80).into(),
+            perceptual_roughness: 1.0,
+            double_sided: true,
+            cull_mode: None,
+            alpha_mode: AlphaMode::Add,
+            ..Default::default()
+        })),
+        NotShadowCaster,
+        NotShadowReceiver,
     )
 }
 
@@ -465,6 +477,39 @@ impl<'a> State<'a> {
         .with_inserted_indices(Indices::U32(self.indices));
         mesh.compute_normals();
         mesh
+    }
+}
+
+fn internal_mesh_top(state: &mut State, x: usize, y: usize, tile: &TileData, y_offset: f32) {
+    let xf = x as f32;
+    let yf = y as f32;
+    let uv = tile.material.to_uv_coords();
+    match tile.height {
+        TileHeight::Flat { height, .. } => {
+            let height32 = height as f32 + y_offset;
+            let index_start = state.positions.len() as u32;
+            state.positions.push([xf - 0.5, height32, yf - 0.5]);
+            state.positions.push([xf + 0.5, height32, yf - 0.5]);
+            state.positions.push([xf - 0.5, height32, yf + 0.5]);
+            state.positions.push([xf + 0.5, height32, yf + 0.5]);
+            state.push_quad_uv_indices(uv, index_start);
+        }
+        TileHeight::Ramp { height, .. } => {
+            let index_start = state.positions.len() as u32;
+            let dir_v = height.dir == TileRampDirection::Vertical;
+            let pos = height.pos as f32 + y_offset;
+            let neg = height.neg as f32 + y_offset;
+
+            state.positions.push([xf - 0.5, neg, yf - 0.5]);
+            state
+                .positions
+                .push([xf + 0.5, if dir_v { neg } else { pos }, yf - 0.5]);
+            state
+                .positions
+                .push([xf - 0.5, if dir_v { pos } else { neg }, yf + 0.5]);
+            state.positions.push([xf + 0.5, pos, yf + 0.5]);
+            state.push_quad_uv_indices(uv, index_start);
+        }
     }
 }
 

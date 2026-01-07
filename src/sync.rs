@@ -12,6 +12,7 @@ pub enum MapEdit {
     Atlas(LoadedTexture),
     ExpandMap(Direction, Option<Vec<TileData>>),
     ShrinkMap(Direction),
+    AdjustHeight(TileRange, f64),
 }
 
 #[derive(Event, Copy, Clone, Debug)]
@@ -24,6 +25,7 @@ pub struct SelectForEditing {
 pub enum EditObject {
     StartingPosition,
     MapSize(Direction),
+    Tile(MpsVec2),
     None,
 }
 
@@ -31,14 +33,14 @@ impl EditObject {
     pub fn exclusive_only(self) -> bool {
         match self {
             Self::StartingPosition => true,
-            Self::MapSize(_) | Self::None => false,
+            Self::MapSize(_) | Self::Tile { .. } | Self::None => false,
         }
     }
 
     pub fn directly_usable(self) -> bool {
         match self {
             Self::StartingPosition => true,
-            Self::MapSize(_) | Self::None => false,
+            Self::MapSize(_) | Self::Tile(_) | Self::None => false,
         }
     }
 }
@@ -56,6 +58,12 @@ pub enum PresetView {
     Player,
     Center,
     TopDown,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct TileRange {
+    pub start: MpsVec2,
+    pub end: MpsVec2,
 }
 
 impl From<MpsVec2> for mint::Vector2<i32> {

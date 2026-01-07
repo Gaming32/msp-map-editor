@@ -78,6 +78,7 @@ impl LoadedFile {
                         .collect(),
                 }),
             ),
+            MapEdit::AdjustHeight(range, height) => MapEdit::AdjustHeight(range, -height),
         };
         if edit == reversed {
             return false;
@@ -154,6 +155,7 @@ impl LoadedFile {
                     self.file.data.remove_row(self.file.data.rows() - 1);
                 }
             },
+            MapEdit::AdjustHeight(range, height) => self.file.adjust_height(*range, *height),
         }
 
         if !self.dirty {

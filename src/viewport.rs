@@ -1,8 +1,10 @@
 use crate::assets::{PlayerMarker, missing_atlas, missing_skybox, player};
 use crate::load_file::{FileLoaded, LoadedFile};
-use crate::mesh::{MapMeshMarker, mesh_map};
+use crate::mesh::{MapMeshMarker, mesh_map, mesh_top_highlights};
 use crate::schema::MpsVec2;
-use crate::sync::{Direction, EditObject, MapEdit, MapEdited, PresetView, SelectForEditing};
+use crate::sync::{
+    Direction, EditObject, MapEdit, MapEdited, PresetView, SelectForEditing, TileRange,
+};
 use crate::{modifier_key, shortcut_pressed};
 use bevy::asset::io::embedded::GetAssetServer;
 use bevy::asset::{LoadState, RenderAssetUsages};
@@ -137,8 +139,13 @@ fn setup_viewport(
     });
     commands.insert_resource(GizmoOptions {
         snap_angle: PI / 4.0,
-        snap_distance: 1.0,
+        snap_distance: 0.5,
         group_targets: false,
+        snapping: true,
+        hotkeys: Some(GizmoHotkeys {
+            enable_snapping: None,
+            ..Default::default()
+        }),
         ..Default::default()
     });
 
@@ -178,7 +185,11 @@ struct ViewportObject {
 #[derive(Component)]
 struct TemporaryViewportObject;
 #[derive(Component)]
-struct BoundsGizmoMarker(Direction);
+struct BoundsGizmo(Direction);
+#[derive(Component)]
+struct TilesGizmo(TileRange);
+#[derive(Component)]
+struct TilesGizmoMesh(TileRange);
 
 #[derive(Event)]
 struct RemeshMap;
@@ -224,15 +235,29 @@ fn on_file_load(
     commands.trigger(RemeshMap);
 }
 
+#[allow(clippy::too_many_arguments)]
 fn on_map_edited(
     on: On<MapEdited>,
     mut commands: Commands,
     file: Res<LoadedFile>,
     mut player: Query<
         (&mut Transform, &mut ViewportObject),
-        (With<PlayerMarker>, Without<BoundsGizmoMarker>),
+        (
+            With<PlayerMarker>,
+            Without<BoundsGizmo>,
+            Without<TilesGizmo>,
+            Without<TilesGizmoMesh>,
+        ),
     >,
-    mut bounds_markers: Query<(&mut Transform, &mut ViewportObject, &BoundsGizmoMarker)>,
+    mut bounds_markers: Query<
+        (&mut Transform, &mut ViewportObject, &BoundsGizmo),
+        (Without<TilesGizmo>, Without<TilesGizmoMesh>),
+    >,
+    mut tiles_gizmo: Query<
+        (&mut Transform, &mut ViewportObject, &TilesGizmo),
+        Without<TilesGizmoMesh>,
+    >,
+    mut tiles_gizmo_child: Query<&mut Transform, With<TilesGizmoMesh>>,
     mut textures: ResMut<ViewportState>,
 ) {
     let mut change_player_pos = false;
@@ -254,6 +279,16 @@ fn on_map_edited(
                 object.old_pos = transform.translation;
             }
         }
+        MapEdit::AdjustHeight(_, _) => {
+            commands.trigger(RemeshMap);
+            change_player_pos = true;
+            if let Ok((mut transform, mut object, gizmo)) = tiles_gizmo.single_mut() {
+                let offset = get_tile_gizmo_mesh_offset(gizmo.0, &file);
+                transform.translation = offset;
+                object.old_pos = offset;
+                tiles_gizmo_child.single_mut().unwrap().translation = -offset;
+            }
+        }
     }
 
     if change_player_pos {
@@ -272,6 +307,7 @@ fn on_remesh_map(
     file: Res<LoadedFile>,
     state: Res<ViewportState>,
     assets: Res<AssetServer>,
+    mut highlighted: Query<(Entity, &TilesGizmoMesh)>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut meshes: ResMut<Assets<Mesh>>,
 ) {
@@ -283,13 +319,22 @@ fn on_remesh_map(
         &mut materials,
         &mut meshes,
     ));
-    info!("Meshed in {:?}", start.elapsed());
+    if let Ok((highlighted, marker)) = highlighted.single_mut() {
+        commands.entity(highlighted).insert(mesh_top_highlights(
+            &file.file.data,
+            marker.0,
+            &mut materials,
+            &mut meshes,
+        ));
+    }
+    debug!("Meshed in {:?}", start.elapsed());
 
     for old in old.iter() {
         commands.entity(old).despawn();
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn on_select_for_editing(
     on: On<SelectForEditing>,
     mut commands: Commands,
@@ -297,6 +342,11 @@ fn on_select_for_editing(
     current_gizmos: Query<Entity, With<GizmoTarget>>,
     temporary_gizmos: Query<Entity, With<TemporaryViewportObject>>,
     player: Query<Entity, With<PlayerMarker>>,
+    mut tiles_gizmo: Query<
+        (&mut Transform, &mut TilesGizmo, &mut ViewportObject),
+        Without<TilesGizmoMesh>,
+    >,
+    mut tiles_gizmo_children: Query<(&mut Transform, &mut TilesGizmoMesh)>,
     file: Res<LoadedFile>,
 ) {
     if on.exclusive {
@@ -312,12 +362,12 @@ fn on_select_for_editing(
         EditObject::StartingPosition => {
             *gizmo_options = GizmoOptions {
                 gizmo_modes: GizmoMode::TranslateX | GizmoMode::TranslateZ | GizmoMode::TranslateXZ,
+                snap_distance: 1.0,
                 hotkeys: Some(GizmoHotkeys {
                     enable_snapping: None,
                     enable_accurate_mode: None,
                     ..Default::default()
                 }),
-                snapping: true,
                 ..*gizmo_options
             };
             for player in player.iter() {
@@ -328,12 +378,12 @@ fn on_select_for_editing(
             *gizmo_options = GizmoOptions {
                 // One of these modes won't work, but since GizmoOptions are applied globally and not per-gizmo, this is all we can do.
                 gizmo_modes: GizmoMode::TranslateX | GizmoMode::TranslateZ,
+                snap_distance: 1.0,
                 hotkeys: Some(GizmoHotkeys {
                     enable_snapping: None,
                     enable_accurate_mode: None,
                     ..Default::default()
                 }),
-                snapping: true,
                 ..*gizmo_options
             };
             let spawn = get_bounds_gizmo_location(&file, side);
@@ -344,13 +394,95 @@ fn on_select_for_editing(
                     old_rot: None,
                 },
                 TemporaryViewportObject,
-                BoundsGizmoMarker(side),
+                BoundsGizmo(side),
                 Transform::from_translation(spawn),
                 GizmoTarget::default(),
             ));
         }
+        EditObject::Tile(new_pos) => {
+            *gizmo_options = GizmoOptions {
+                gizmo_modes: GizmoMode::TranslateY.into(),
+                snap_distance: 0.5,
+                hotkeys: Some(GizmoHotkeys {
+                    enable_snapping: None,
+                    ..Default::default()
+                }),
+                ..*gizmo_options
+            };
+            if !on.exclusive
+                && let Ok((mut transform, mut tiles, mut object)) = tiles_gizmo.single_mut()
+            {
+                let old_start = tiles.0.start;
+                match (new_pos.x >= old_start.x, new_pos.y >= old_start.y) {
+                    (true, true) => {
+                        tiles.0.end = new_pos;
+                    }
+                    (false, true) => {
+                        tiles.0 = TileRange {
+                            start: MpsVec2::new(new_pos.x, old_start.y),
+                            end: MpsVec2::new(old_start.x, new_pos.y),
+                        };
+                    }
+                    (true, false) => {
+                        tiles.0 = TileRange {
+                            start: MpsVec2::new(old_start.x, new_pos.y),
+                            end: MpsVec2::new(new_pos.x, old_start.y),
+                        };
+                    }
+                    (false, false) => {
+                        tiles.0 = TileRange {
+                            start: new_pos,
+                            end: old_start,
+                        };
+                    }
+                }
+                let mesh_offset = get_tile_gizmo_mesh_offset(tiles.0, &file);
+                transform.translation = mesh_offset;
+                object.old_pos = mesh_offset;
+
+                let mut child = tiles_gizmo_children.single_mut().unwrap();
+                child.0.translation = -mesh_offset;
+                child.1.0 = tiles.0;
+            } else {
+                let range = TileRange {
+                    start: new_pos,
+                    end: new_pos,
+                };
+                let mesh_offset = get_tile_gizmo_mesh_offset(range, &file);
+                commands.spawn((
+                    ViewportObject {
+                        editor: EditObject::Tile(new_pos),
+                        old_pos: mesh_offset,
+                        old_rot: None,
+                    },
+                    TilesGizmo(range),
+                    TemporaryViewportObject,
+                    GizmoTarget::default(),
+                    Transform::from_translation(mesh_offset),
+                    Visibility::default(),
+                    children![(
+                        TilesGizmoMesh(range),
+                        Transform::from_translation(-mesh_offset)
+                    )],
+                ));
+            }
+            commands.trigger(RemeshMap);
+        }
         EditObject::None => {}
     }
+}
+
+fn get_tile_gizmo_mesh_offset(range: TileRange, file: &LoadedFile) -> Vec3 {
+    Vec3::new(
+        (range.start.x + range.end.x) as f32 / 2.0,
+        file.file.data[(
+            (range.start.y + range.end.y) as usize / 2,
+            (range.start.x + range.end.x) as usize / 2,
+        )]
+            .height
+            .center_height() as f32,
+        (range.start.y + range.end.y) as f32 / 2.0,
+    )
 }
 
 fn get_player_pos(file: &LoadedFile, pos: MpsVec2) -> Vec3 {
@@ -375,7 +507,7 @@ fn get_bounds_gizmo_location(file: &LoadedFile, side: Direction) -> Vec3 {
 fn on_pointer_click(
     on: On<Pointer<Click>>,
     objects: Query<&ViewportObject>,
-    _meshes: Query<(), With<MapMeshMarker>>,
+    meshes: Query<(), With<MapMeshMarker>>,
     keys: Res<ButtonInput<KeyCode>>,
     mut commands: Commands,
 ) {
@@ -383,14 +515,20 @@ fn on_pointer_click(
         return;
     }
     let editor = if let Ok(object) = objects.get(on.entity) {
+        if !object.editor.directly_usable() {
+            return;
+        }
         object.editor
+    } else if meshes.contains(on.entity) {
+        let coord_vec = on.hit.position.unwrap() - on.hit.normal.unwrap() * 0.001;
+        let coord = MpsVec2::new(coord_vec.x.round() as i32, coord_vec.z.round() as i32);
+        // if let Ok(gizmo) = already_selected.single() && coord == gizmo.0.start {
+        //     // XXX: Hack fix because sometimes interacting with the gizmo triggers a click to the first tile.
+        // }
+        EditObject::Tile(coord)
     } else {
-        // TODO: Support selecting mesh
         return;
     };
-    if !editor.directly_usable() {
-        return;
-    }
     commands.trigger(SelectForEditing {
         object: editor,
         exclusive: editor.exclusive_only() || !keys.any_pressed(modifier_key!(Shift)),
@@ -503,9 +641,18 @@ fn update_gizmos(mut options: ResMut<GizmoOptions>, viewport: Res<ViewportTarget
 fn sync_from_gizmos(
     mut commands: Commands,
     mut file: ResMut<LoadedFile>,
-    mut gizmos: Query<(&mut Transform, &mut ViewportObject, &GizmoTarget)>,
+    mut gizmos: Query<
+        (
+            &mut Transform,
+            &mut ViewportObject,
+            &GizmoTarget,
+            Option<&TilesGizmo>,
+        ),
+        Without<TilesGizmoMesh>,
+    >,
+    mut selected_mesh_gizmo: Query<&mut Transform, With<TilesGizmoMesh>>,
 ) {
-    for (mut transform, mut object, gizmo) in gizmos.iter_mut() {
+    for (mut transform, mut object, gizmo, tiles) in gizmos.iter_mut() {
         match object.editor {
             EditObject::StartingPosition => {
                 let pos = transform.translation;
@@ -568,6 +715,25 @@ fn sync_from_gizmos(
                             transform.translation = object.old_pos;
                         }
                     }
+                }
+            }
+            EditObject::Tile(_) => {
+                let range = tiles.unwrap().0;
+                if gizmo.is_active() {
+                    let Some(GizmoResult::Translation { delta, .. }) = gizmo.latest_result() else {
+                        return;
+                    };
+                    let delta = (delta.y * 4.0) as i32 as f64 / 4.0;
+                    file.file.adjust_height(range, delta);
+                    selected_mesh_gizmo.single_mut().unwrap().translation.y -= delta as f32;
+                    commands.trigger(RemeshMap);
+                } else if transform.translation != object.old_pos {
+                    let change = (transform.translation.y - object.old_pos.y) as f64;
+                    let change = (change * 4.0) as i32 as f64 / 4.0;
+                    file.file.adjust_height(range, -change);
+                    selected_mesh_gizmo.single_mut().unwrap().translation.y += change as f32;
+                    file.edit_map(&mut commands, MapEdit::AdjustHeight(range, change));
+                    object.old_pos = transform.translation;
                 }
             }
             EditObject::None => {}
