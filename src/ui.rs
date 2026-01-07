@@ -4,7 +4,7 @@ use crate::load_file::{
     FileLoaded, LoadedFile, LoadedTexture, MapFileDialog, new_file, open_file, save_file,
     save_file_as,
 };
-use crate::schema::{CubeMap, TileHeight, TileRampDirection};
+use crate::schema::{Connection, ConnectionCondition, CubeMap, TileHeight, TileRampDirection};
 use crate::sync::{Direction, PresetView};
 use crate::sync::{EditObject, MapEdit, MapEdited, SelectForEditing};
 use crate::viewport::ViewportTarget;
@@ -157,7 +157,8 @@ fn on_map_edited(on: On<MapEdited>, mut state: ResMut<UiState>) {
         MapEdit::ExpandMap(_, _)
         | MapEdit::ShrinkMap(_)
         | MapEdit::AdjustHeight(_, _)
-        | MapEdit::ChangeHeight(_, _) => {}
+        | MapEdit::ChangeHeight(_, _)
+        | MapEdit::ChangeConnection(_, _, _) => {}
     }
 }
 
@@ -446,7 +447,7 @@ fn draw_imgui(
                 .tree_push_on_open(false)
                 .push()
         {
-            const LABELS: CubeMap<&str> = ["Right", "Left", "Up", "Down", "Front", "Back"];
+            const LABELS: CubeMap<&str> = ["East", "West", "Up", "Down", "North", "South"];
             for (index, (label, texture)) in LABELS.iter().zip(skybox.iter()).enumerate() {
                 if ui.image_button(format!("Select {label}"), *texture, [128.0; 2]) {
                     commands
@@ -468,6 +469,8 @@ fn draw_imgui(
     });
 
     ui.window("Tile settings").collapsible(true).build(|| {
+        const MULTIPLE_VALUES: &str = "<multiple values>";
+
         if let Some(range) = file.selected_range {
             let single_tile = (range.start == range.end).then_some(range.start);
             if single_tile.is_some() {
@@ -507,10 +510,10 @@ fn draw_imgui(
                 let mut index = options.iter().position(|&x| x == ramp_type).unwrap();
                 let changed = ui.combo("Height type", &mut index, options, |&value| {
                     match value {
-                        None => "<multiple values>",
+                        None => MULTIPLE_VALUES,
                         Some(None) => "Flat",
-                        Some(Some(TileRampDirection::Horizontal)) => "Horizontal Ramp",
-                        Some(Some(TileRampDirection::Vertical)) => "Vertical Ramp",
+                        Some(Some(TileRampDirection::Horizontal)) => "West/East Ramp",
+                        Some(Some(TileRampDirection::Vertical)) => "North/South Ramp",
                     }
                     .into()
                 });
@@ -536,7 +539,7 @@ fn draw_imgui(
                         None
                     }
                 } else {
-                    let mut buf = "<multiple values>".to_string();
+                    let mut buf = MULTIPLE_VALUES.to_string();
                     if ui.input_text(label, &mut buf).build() {
                         buf.parse().ok()
                     } else {
@@ -570,8 +573,8 @@ fn draw_imgui(
                 }
                 Some(Some(dir)) => {
                     let (neg_label, pos_label) = match dir {
-                        TileRampDirection::Horizontal => ("Left height", "Right height"),
-                        TileRampDirection::Vertical => ("Front height", "Back height"),
+                        TileRampDirection::Horizontal => ("West height", "East height"),
+                        TileRampDirection::Vertical => ("North height", "South height"),
                     };
                     let neg_height = range
                         .into_iter()
@@ -591,6 +594,59 @@ fn draw_imgui(
                     }
                     if ui.button("Flip") {
                         file.change_heights(&mut commands, range, TileHeight::with_flipped_heights);
+                    }
+                }
+            }
+
+            ui.spacing();
+
+            if let Some(_token) = ui
+                .tree_node_config("Connections")
+                .framed(true)
+                .tree_push_on_open(false)
+                .push()
+            {
+                for direction in Direction::ALL_CLOCKWISE {
+                    let connection_type = range
+                        .into_iter()
+                        .map(|x| file.file[x].connections[*direction])
+                        .all_equal_value()
+                        .ok();
+                    let options: &[_] = if connection_type.is_some() {
+                        &[
+                            Some(Connection::Unconditional(false)),
+                            Some(Connection::Unconditional(true)),
+                            Some(Connection::Conditional(ConnectionCondition::Lock)),
+                        ]
+                    } else {
+                        &[
+                            None,
+                            Some(Connection::Unconditional(false)),
+                            Some(Connection::Unconditional(true)),
+                            Some(Connection::Conditional(ConnectionCondition::Lock)),
+                        ]
+                    };
+                    let mut index = options.iter().position(|&x| x == connection_type).unwrap();
+                    let changed = ui.combo(direction, &mut index, options, |&value| {
+                        match value {
+                            None => MULTIPLE_VALUES,
+                            Some(Connection::Unconditional(false)) => "Block",
+                            Some(Connection::Unconditional(true)) => "Passable",
+                            Some(Connection::Conditional(ConnectionCondition::Lock)) => {
+                                "Locked gate"
+                            }
+                        }
+                        .into()
+                    });
+                    if changed && let Some(new_type) = options[index] {
+                        file.edit_map(
+                            &mut commands,
+                            MapEdit::ChangeConnection(
+                                range,
+                                *direction,
+                                vec![new_type; range.area()],
+                            ),
+                        );
                     }
                 }
             }

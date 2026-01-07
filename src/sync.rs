@@ -1,7 +1,8 @@
 use crate::load_file::LoadedTexture;
-use crate::schema::{MpsVec2, TileData, TileHeight};
+use crate::schema::{Connection, MpsVec2, TileData, TileHeight};
 use crate::tile_range::TileRange;
 use bevy::prelude::Event;
+use strum::AsRefStr;
 
 #[derive(Event, Clone, Debug)]
 pub struct MapEdited(pub MapEdit);
@@ -15,6 +16,7 @@ pub enum MapEdit {
     ShrinkMap(Direction),
     AdjustHeight(TileRange, f64),
     ChangeHeight(TileRange, Vec<TileHeight>),
+    ChangeConnection(TileRange, Direction, Vec<Connection>),
 }
 
 #[derive(Event, Copy, Clone, Debug)]
@@ -47,12 +49,21 @@ impl EditObject {
     }
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, AsRefStr)]
 pub enum Direction {
     West,
     East,
     North,
     South,
+}
+
+impl Direction {
+    pub const ALL_CLOCKWISE: &[Direction] = &[
+        Direction::North,
+        Direction::East,
+        Direction::South,
+        Direction::West,
+    ];
 }
 
 #[derive(Event, Copy, Clone, Debug, Eq, PartialEq)]

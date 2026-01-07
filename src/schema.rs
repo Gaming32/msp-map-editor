@@ -1,3 +1,4 @@
+use crate::sync::Direction;
 use crate::tile_range::TileRange;
 use crate::utils::grid_as_vec_vec;
 use enum_map::{Enum, EnumMap};
@@ -392,6 +393,30 @@ pub struct ConnectionMap {
     pub south: Connection,
     #[serde(rename = "w")]
     pub west: Connection,
+}
+
+impl Index<Direction> for ConnectionMap {
+    type Output = Connection;
+
+    fn index(&self, index: Direction) -> &Self::Output {
+        match index {
+            Direction::West => &self.west,
+            Direction::East => &self.east,
+            Direction::North => &self.north,
+            Direction::South => &self.south,
+        }
+    }
+}
+
+impl IndexMut<Direction> for ConnectionMap {
+    fn index_mut(&mut self, index: Direction) -> &mut Self::Output {
+        match index {
+            Direction::West => &mut self.west,
+            Direction::East => &mut self.east,
+            Direction::North => &mut self.north,
+            Direction::South => &mut self.south,
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]

@@ -285,6 +285,9 @@ fn on_map_edited(
             change_player_pos = true;
             change_tiles_gizmos = true;
         }
+        MapEdit::ChangeConnection(_, _, _) => {
+            commands.trigger(RemeshMap);
+        }
     }
 
     if change_player_pos {

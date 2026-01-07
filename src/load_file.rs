@@ -99,6 +99,14 @@ impl LoadedFile {
                 range,
                 range.into_iter().map(|pos| self.file[pos].height).collect(),
             ),
+            MapEdit::ChangeConnection(range, direction, _) => MapEdit::ChangeConnection(
+                range,
+                direction,
+                range
+                    .into_iter()
+                    .map(|pos| self.file[pos].connections[direction])
+                    .collect(),
+            ),
         };
         if edit == reversed {
             return false;
@@ -184,6 +192,16 @@ impl LoadedFile {
                 );
                 for (pos, height) in range.into_iter().zip(new) {
                     self.file[pos].height = *height;
+                }
+            }
+            MapEdit::ChangeConnection(range, direction, new) => {
+                assert_eq!(
+                    range.area(),
+                    new.len(),
+                    "MapEdit::ChangeConnection params have differing sizes"
+                );
+                for (pos, connection) in range.into_iter().zip(new) {
+                    self.file[pos].connections[*direction] = *connection;
                 }
             }
         }
