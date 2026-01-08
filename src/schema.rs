@@ -228,9 +228,15 @@ pub struct TileData {
     pub materials: MaterialMap,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub popup: Option<PopupType>,
+    #[serde(default, skip_serializing_if = "is_no_coins")]
+    pub coins: i32,
     #[serde(default)]
     pub walk_over: bool,
     pub silver_star_spawnable: bool,
+}
+
+fn is_no_coins(x: &i32) -> bool {
+    *x == 0
 }
 
 impl TileData {
@@ -556,12 +562,6 @@ impl MpsMaterial {
             u + Self::U_INCREMENT - 0.001,
             v + Self::V_INCREMENT - 0.001,
         )
-    }
-
-    pub const fn from_uv_coords(u: f32, v: f32) -> Self {
-        let x = (u * ATLAS_SIZE.0 as f32) as AtlasCoordValue;
-        let y = ATLAS_SIZE.1 - 1 - (v * ATLAS_SIZE.1 as f32) as AtlasCoordValue;
-        Self(y * ATLAS_SIZE.0 + x)
     }
 }
 

@@ -1,3 +1,26 @@
+use imgui::sys::ImGuiItemFlags;
+use imgui::{Ui, sys};
+
+pub trait TriStateCheckbox {
+    fn checkbox_tri_state(&self, label: impl AsRef<str>, value: &mut Option<bool>) -> bool;
+}
+
+impl TriStateCheckbox for Ui {
+    fn checkbox_tri_state(&self, label: impl AsRef<str>, value: &mut Option<bool>) -> bool {
+        if let Some(value) = value {
+            self.checkbox(label, value)
+        } else {
+            unsafe { sys::igPushItemFlag(sys::ImGuiItemFlags_MixedValue as ImGuiItemFlags, true) };
+            let result = self.checkbox(label, &mut false);
+            if result {
+                *value = Some(true);
+            }
+            unsafe { sys::igPopItemFlag() };
+            result
+        }
+    }
+}
+
 pub mod grid_as_vec_vec {
     use grid::Grid;
     use itertools::Itertools;

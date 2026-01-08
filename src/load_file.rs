@@ -126,6 +126,28 @@ impl LoadedFile {
                     })
                     .collect(),
             ),
+            MapEdit::ChangePopupType(range, _) => MapEdit::ChangePopupType(
+                *range,
+                range.into_iter().map(|pos| self.file[pos].popup).collect(),
+            ),
+            MapEdit::ChangeCoins(range, _) => MapEdit::ChangeCoins(
+                *range,
+                range.into_iter().map(|pos| self.file[pos].coins).collect(),
+            ),
+            MapEdit::ChangeWalkOver(range, _) => MapEdit::ChangeWalkOver(
+                *range,
+                range
+                    .into_iter()
+                    .map(|pos| self.file[pos].walk_over)
+                    .collect(),
+            ),
+            MapEdit::ChangeSilverStarSpawnable(range, _) => MapEdit::ChangeSilverStarSpawnable(
+                *range,
+                range
+                    .into_iter()
+                    .map(|pos| self.file[pos].silver_star_spawnable)
+                    .collect(),
+            ),
         };
         if edit == reversed {
             let is_equal_reverse = match &reversed {
@@ -165,6 +187,20 @@ impl LoadedFile {
     }
 
     fn apply_edit(&mut self, commands: &mut Commands, edit: MapEdit) {
+        macro_rules! check_edit_range {
+            ($range:expr, $new:expr, $name:ident) => {
+                assert_eq!(
+                    $range.area(),
+                    $new.len(),
+                    concat!(
+                        "MapEdit::",
+                        stringify!($name),
+                        " params have differing sizes"
+                    ),
+                );
+            };
+        }
+
         match &edit {
             MapEdit::StartingPosition(pos) => self.file.starting_tile = *pos,
             MapEdit::Skybox(index, image) => {
@@ -212,31 +248,19 @@ impl LoadedFile {
             },
             MapEdit::AdjustHeight(range, change) => self.file.adjust_height(*range, *change),
             MapEdit::ChangeHeight(range, new) => {
-                assert_eq!(
-                    range.area(),
-                    new.len(),
-                    "MapEdit::ChangeHeight params have differing sizes"
-                );
-                for (pos, height) in range.into_iter().zip(new) {
-                    self.file[pos].height = *height;
+                check_edit_range!(range, new, ChangeHeight);
+                for (pos, &height) in range.into_iter().zip(new) {
+                    self.file[pos].height = height;
                 }
             }
             MapEdit::ChangeConnection(range, direction, new) => {
-                assert_eq!(
-                    range.area(),
-                    new.len(),
-                    "MapEdit::ChangeConnection params have differing sizes"
-                );
-                for (pos, connection) in range.into_iter().zip(new) {
-                    self.file[pos].connections[*direction] = *connection;
+                check_edit_range!(range, new, ChangeConnection);
+                for (pos, &connection) in range.into_iter().zip(new) {
+                    self.file[pos].connections[*direction] = connection;
                 }
             }
             MapEdit::ChangeMaterial(range, location, new) => {
-                assert_eq!(
-                    range.area(),
-                    new.len(),
-                    "MapEdit::ChangeMaterial params have differing sizes"
-                );
+                check_edit_range!(range, new, ChangeMaterial);
                 for (pos, &edit) in range.into_iter().zip(new) {
                     match edit {
                         MaterialEdit::Set(material) => {
@@ -256,6 +280,30 @@ impl LoadedFile {
                             }
                         }
                     }
+                }
+            }
+            MapEdit::ChangePopupType(range, new) => {
+                check_edit_range!(range, new, ChangePopupType);
+                for (pos, &popup) in range.into_iter().zip(new) {
+                    self.file[pos].popup = popup;
+                }
+            }
+            MapEdit::ChangeCoins(range, new) => {
+                check_edit_range!(range, new, ChangeCoins);
+                for (pos, &coins) in range.into_iter().zip(new) {
+                    self.file[pos].coins = coins;
+                }
+            }
+            MapEdit::ChangeWalkOver(range, new) => {
+                check_edit_range!(range, new, ChangeWalkOver);
+                for (pos, &walk_over) in range.into_iter().zip(new) {
+                    self.file[pos].walk_over = walk_over;
+                }
+            }
+            MapEdit::ChangeSilverStarSpawnable(range, new) => {
+                check_edit_range!(range, new, ChangeSilverStarSpawnable);
+                for (pos, &silver_star_spawnable) in range.into_iter().zip(new) {
+                    self.file[pos].silver_star_spawnable = silver_star_spawnable;
                 }
             }
         }

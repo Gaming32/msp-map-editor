@@ -290,6 +290,11 @@ fn on_map_edited(
         MapEdit::ChangeConnection(_, _, _) | MapEdit::ChangeMaterial(_, _, _) => {
             commands.trigger(RemeshMap);
         }
+        MapEdit::ChangePopupType(_, _)
+        | MapEdit::ChangeCoins(_, _)
+        | MapEdit::ChangeWalkOver(_, _)
+        // Potentially make silver stars render on map when they get implemented fully
+        | MapEdit::ChangeSilverStarSpawnable(_, _) => {}
     }
 
     if change_player_pos {

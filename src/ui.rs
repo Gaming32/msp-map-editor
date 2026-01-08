@@ -5,11 +5,13 @@ use crate::load_file::{
     save_file_as,
 };
 use crate::schema::{
-    Connection, ConnectionCondition, CubeMap, MpsMaterial, TileHeight, TileRampDirection,
+    Connection, ConnectionCondition, CubeMap, MpsMaterial, PopupType, ShopNumber, TileHeight,
+    TileRampDirection,
 };
 use crate::sync::{Direction, MaterialEdit, MaterialLocation, PresetView};
 use crate::sync::{EditObject, MapEdit, MapEdited, SelectForEditing};
 use crate::tile_range::TileRange;
+use crate::utils::TriStateCheckbox;
 use crate::viewport::ViewportTarget;
 use crate::{Directories, shortcut_pressed};
 use bevy::asset::LoadState;
@@ -164,7 +166,11 @@ fn on_map_edited(on: On<MapEdited>, mut state: ResMut<UiState>) {
         | MapEdit::AdjustHeight(_, _)
         | MapEdit::ChangeHeight(_, _)
         | MapEdit::ChangeConnection(_, _, _)
-        | MapEdit::ChangeMaterial(_, _, _) => {}
+        | MapEdit::ChangeMaterial(_, _, _)
+        | MapEdit::ChangePopupType(_, _)
+        | MapEdit::ChangeCoins(_, _)
+        | MapEdit::ChangeWalkOver(_, _)
+        | MapEdit::ChangeSilverStarSpawnable(_, _) => {}
     }
 }
 
@@ -508,7 +514,7 @@ fn draw_imgui(
                 getter: ($($getter:tt)+),
                 options: [$($option:expr),* $(,)?],
                 option_labels: {
-                    $($option_pat:pat_param => $option_display:expr,)*
+                    $($option_pat:pat => $option_display:expr,)*
                 },
                 editor: |$editor_var:ident| $editor:expr,
             ) => {{
@@ -519,12 +525,12 @@ fn draw_imgui(
                     .ok();
                 let options: &[_] = if single_value.is_some() {
                     &[
-                        $(Some($option),)+
+                        $(Some($option),)*
                     ]
                 } else {
                     &[
                         None,
-                        $(Some($option),)+
+                        $(Some($option),)*
                     ]
                 };
                 let mut index = options.iter().position(|&x| x == single_value).unwrap();
@@ -635,10 +641,10 @@ fn draw_imgui(
         if let Some(atlas) = state.atlas_texture
             && let Some(icon_atlas) = state.icon_atlas_texture
             && let Some(_token) = ui
-                .tree_node_config("Materials")
-                .framed(true)
-                .tree_push_on_open(false)
-                .push()
+            .tree_node_config("Materials")
+            .framed(true)
+            .tree_push_on_open(false)
+            .push()
         {
             const MATERIAL_PREVIEW_SIZE: [f32; 2] = [64.0; 2];
             let mut material_button = |id, location| {
@@ -779,6 +785,80 @@ fn draw_imgui(
                     ),
                 );
             }
+        }
+
+        if let Some(_token) = ui
+            .tree_node_config("Behavior")
+            .framed(true)
+            .tree_push_on_open(false)
+            .push()
+        {
+            let mut coins = range
+                .into_iter()
+                .map(|x| file.file[x].coins)
+                .all_equal_value()
+                .ok();
+            let coins_changed = if let Some(coins) = coins.as_mut() {
+                ui.input_int("Coin change", coins).build()
+            } else {
+                let mut buf = MULTIPLE_VALUES.to_string();
+                if ui.input_text("Coin change", &mut buf).build() {
+                    coins = buf.parse().ok();
+                }
+                coins.is_some()
+            };
+            if coins_changed {
+                file.edit_map(&mut commands, MapEdit::ChangeCoins(range, vec![coins.unwrap(); range.area()]));
+            }
+
+            let mut walk_over = range
+                .into_iter()
+                .map(|x| file.file[x].walk_over)
+                .all_equal_value()
+                .ok();
+            if ui.checkbox_tri_state("Skip dice countdown", &mut walk_over) {
+                file.edit_map(&mut commands, MapEdit::ChangeWalkOver(range, vec![walk_over.unwrap(); range.area()]));
+            }
+
+            let mut silver_star_spawnable = range
+                .into_iter()
+                .map(|x| file.file[x].silver_star_spawnable)
+                .all_equal_value()
+                .ok();
+            if ui.checkbox_tri_state("Spawn silver stars", &mut silver_star_spawnable) {
+                file.edit_map(&mut commands, MapEdit::ChangeSilverStarSpawnable(range, vec![silver_star_spawnable.unwrap(); range.area()]));
+            }
+
+            simple_combo_box!(
+                label: "Popup type",
+                getter: (.popup),
+                options: [
+                    None,
+                    Some(PopupType::LuckySpace),
+                    Some(PopupType::Star1),
+                    Some(PopupType::Star2),
+                    Some(PopupType::StarSteal),
+                    Some(PopupType::Shop(ShopNumber::Shop1)),
+                    Some(PopupType::Shop(ShopNumber::Shop2)),
+                    Some(PopupType::Shop(ShopNumber::Shop3)),
+                ],
+                option_labels: {
+                    None => "None",
+                    Some(PopupType::LuckySpace) => "Lucky space",
+                    Some(PopupType::Star1) => "Star",
+                    Some(PopupType::Star2) => "Two stars",
+                    Some(PopupType::StarSteal) => "Star steal",
+                    Some(PopupType::Shop(ShopNumber::Shop1)) => "Shop #1",
+                    Some(PopupType::Shop(ShopNumber::Shop2)) => "Shop #2",
+                    Some(PopupType::Shop(ShopNumber::Shop3)) => "Shop #3",
+                },
+                editor: |new_popup| file.edit_map(
+                    &mut commands,
+                    MapEdit::ChangePopupType(range, vec![new_popup; range.area()])
+                ),
+            );
+
+            // TODO: Preview shop
         }
     });
     if open_material_picker {

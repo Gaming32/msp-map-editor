@@ -1,5 +1,5 @@
 use crate::load_file::LoadedTexture;
-use crate::schema::{Connection, MpsMaterial, MpsVec2, TileData, TileHeight};
+use crate::schema::{Connection, MpsMaterial, MpsVec2, PopupType, TileData, TileHeight};
 use crate::tile_range::TileRange;
 use bevy::prelude::Event;
 use strum::{AsRefStr, Display};
@@ -18,6 +18,10 @@ pub enum MapEdit {
     ChangeHeight(TileRange, Vec<TileHeight>),
     ChangeConnection(TileRange, Direction, Vec<Connection>),
     ChangeMaterial(TileRange, MaterialLocation, Vec<MaterialEdit>),
+    ChangePopupType(TileRange, Vec<Option<PopupType>>),
+    ChangeCoins(TileRange, Vec<i32>),
+    ChangeWalkOver(TileRange, Vec<bool>),
+    ChangeSilverStarSpawnable(TileRange, Vec<bool>),
 }
 
 pub type MaterialLocation = Option<(Direction, usize)>;
