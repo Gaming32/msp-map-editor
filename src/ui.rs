@@ -344,11 +344,13 @@ fn draw_imgui(
                 commands.trigger(PresetView::Center);
             }
 
+            if ui.menu_item_config("Selection").shortcut("Num .").build() {
+                commands.trigger(PresetView::Selection);
+            }
+
             if ui.menu_item_config("Top-down").shortcut("Num 7").build() {
                 commands.trigger(PresetView::TopDown);
             }
-
-            // TODO: Selected
         });
     });
 
@@ -966,6 +968,9 @@ fn keyboard_handler(
         current_open_file.undo(&mut commands);
     }
 
+    if shortcut_pressed!(keys, NumpadDecimal) {
+        commands.trigger(PresetView::Selection);
+    }
     if shortcut_pressed!(keys, Numpad7) {
         commands.trigger(PresetView::TopDown);
     }

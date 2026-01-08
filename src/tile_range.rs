@@ -7,13 +7,6 @@ pub struct TileRange {
 }
 
 impl TileRange {
-    pub fn new(x1: i32, y1: i32, x2: i32, y2: i32) -> Self {
-        Self {
-            start: MpsVec2::new(x1, y1),
-            end: MpsVec2::new(x2, y2),
-        }
-    }
-
     pub fn area(self) -> usize {
         (self.end.x - self.start.x + 1) as usize * (self.end.y - self.start.y + 1) as usize
     }
@@ -115,7 +108,11 @@ mod tests {
 
     macro_rules! make_iter {
         (($x1:literal, $y1:literal) - ($x2:literal, $y2:literal)) => {
-            TileRange::new($x1, $y1, $x2, $y2).into_iter()
+            TileRange {
+                start: MpsVec2::new($x1, $y1),
+                end: MpsVec2::new($x2, $y2),
+            }
+            .into_iter()
         };
     }
 

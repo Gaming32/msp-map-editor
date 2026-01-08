@@ -9,7 +9,6 @@ use bevy::tasks::AsyncComputeTaskPool;
 use bevy::window::PrimaryWindow;
 use bevy_file_dialog::DialogFileLoaded;
 use bevy_file_dialog::prelude::*;
-use itertools::Itertools;
 use native_dialog::MessageLevel;
 use relative_path::{PathExt, RelativePathBuf};
 use serde::Serialize;

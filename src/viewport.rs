@@ -8,6 +8,7 @@ use crate::{modifier_key, shortcut_pressed};
 use bevy::asset::io::embedded::GetAssetServer;
 use bevy::asset::{LoadState, RenderAssetUsages};
 use bevy::camera::NormalizedRenderTarget;
+use bevy::camera::primitives::{Aabb, MeshAabb};
 use bevy::camera::visibility::NoFrustumCulling;
 use bevy::core_pipeline::Skybox;
 use bevy::input::ButtonState;
@@ -24,6 +25,7 @@ use bevy::window::WindowEvent;
 use bevy_easings::{CustomComponentEase, EaseFunction, EasingType};
 use bevy_map_camera::controller::CameraControllerButtons;
 use bevy_map_camera::{CameraControllerSettings, LookTransform, MapCamera, MapCameraPlugin};
+use bevy_math::bounding::{Aabb3d, BoundingVolume};
 use image::imageops::FilterType;
 use image::{DynamicImage, GenericImageView, RgbaImage};
 use std::f32::consts::PI;
@@ -555,12 +557,16 @@ fn on_pointer_click(
     });
 }
 
+#[allow(clippy::too_many_arguments)]
 fn on_preset_view(
     on: On<PresetView>,
     mut camera: Query<(Entity, &LookTransform, &Projection), With<Camera>>,
+    selection: Query<Entity, With<GizmoTarget>>,
     mut commands: Commands,
+    world: &World,
     player_pos: Query<&Transform, With<PlayerMarker>>,
     file: Res<LoadedFile>,
+    meshes: Res<Assets<Mesh>>,
 ) {
     for (camera, transform, projection) in camera.iter_mut() {
         let new_transform = match on.event() {
@@ -574,14 +580,54 @@ fn on_preset_view(
                 let data = &file.file.data;
                 let target = Vec3::new(
                     data.cols() as f32 / 2.0 - 0.5,
-                    0.0,
+                    data[(data.rows() / 2, data.cols() / 2)]
+                        .height
+                        .center_height() as f32,
                     data.rows() as f32 / 2.0 - 0.5,
                 );
-                LookTransform {
+                compute_grounded_look_transform(LookTransform {
                     eye: target + Vec3::new(-10.0, 10.0, 10.0),
                     target,
                     up: Vec3::Y,
+                })
+            }
+            PresetView::Selection => {
+                let Projection::Perspective(perspective) = projection else {
+                    return;
+                };
+                let mut aabb: Option<Aabb3d> = None;
+                for entity in selection {
+                    let Some(new_aabb) = get_selected_entity_aabb(entity, world, &meshes) else {
+                        continue;
+                    };
+                    if let Some(aabb) = aabb.as_mut() {
+                        *aabb = aabb.merge(&new_aabb);
+                    } else {
+                        aabb = Some(new_aabb);
+                    }
                 }
+                let Some(aabb) = aabb else {
+                    return;
+                };
+                let aabb = Aabb::from_min_max(aabb.min.into(), aabb.max.into());
+
+                let radius = aabb.half_extents.length();
+                let aspect = perspective.aspect_ratio;
+                let fov_y = perspective.fov;
+                let fov_x = ((fov_y / 2.0).tan() * aspect).atan() * 2.0;
+                let min_fov = fov_x.min(fov_y);
+                let distance = radius / (min_fov / 2.0).sin();
+
+                let current_unit = (transform.target - transform.eye).normalize();
+                compute_grounded_look_transform(LookTransform {
+                    eye: Vec3::from(aabb.center) - current_unit * distance,
+                    target: aabb.center.into(),
+                    up: if current_unit.abs_diff_eq(Vec3::NEG_Y, 0.001) {
+                        Vec3::NEG_Z
+                    } else {
+                        Vec3::Y
+                    },
+                })
             }
             PresetView::TopDown => {
                 let Projection::Perspective(perspective) = projection else {
@@ -620,17 +666,49 @@ fn on_preset_view(
     }
 }
 
+fn get_selected_entity_aabb(
+    entity: Entity,
+    world: &World,
+    meshes: &Assets<Mesh>,
+) -> Option<Aabb3d> {
+    let entity = world.entity(entity);
+    if let Some(mesh) = entity.get::<Mesh3d>() {
+        let aabb = meshes.get(&mesh.0)?.compute_aabb()?;
+        let translation = entity
+            .get::<Transform>()
+            .map(|x| Vec3A::from(x.translation))
+            .unwrap_or_default();
+        Some(Aabb3d::new(aabb.center + translation, aabb.half_extents))
+    } else if entity.contains::<TilesGizmo>() {
+        let child = world.entity(entity.get::<Children>()?[0]);
+        let mesh = child.get::<Mesh3d>()?;
+        let aabb = meshes.get(&mesh.0)?.compute_aabb()?;
+        Some(Aabb3d::new(aabb.center, aabb.half_extents))
+    } else {
+        entity
+            .get::<Transform>()
+            .map(|transform| Aabb3d::new(transform.translation, Vec3::splat(2.0)))
+    }
+}
+
 fn get_player_cam_transform(player_pos: Vec3) -> LookTransform {
-    const CAM_OFFSET: Vec3 = Vec3::new(0.0, 3.0, 6.0);
-    let eye = player_pos + CAM_OFFSET;
-    LookTransform {
-        eye,
-        target: Vec3::new(
-            player_pos.x,
-            0.0,
-            eye.z - eye.y / CAM_OFFSET.y * CAM_OFFSET.z,
-        ),
+    compute_grounded_look_transform(LookTransform {
+        eye: player_pos + Vec3::new(0.0, 3.0, 6.0),
+        target: player_pos,
         up: Vec3::Y,
+    })
+}
+
+fn compute_grounded_look_transform(transform: LookTransform) -> LookTransform {
+    let look_angle = (transform.eye - transform.target).normalize();
+    LookTransform {
+        eye: transform.eye,
+        target: Vec3::new(
+            transform.eye.x - transform.eye.y / look_angle.y * look_angle.x,
+            0.0,
+            transform.eye.z - transform.eye.y / look_angle.y * look_angle.z,
+        ),
+        up: transform.up,
     }
 }
 

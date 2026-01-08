@@ -86,5 +86,6 @@ impl Direction {
 pub enum PresetView {
     Player,
     Center,
+    Selection,
     TopDown,
 }
