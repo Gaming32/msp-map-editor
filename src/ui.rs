@@ -482,314 +482,305 @@ fn draw_imgui(
 
     let mut open_material_picker = false;
     ui.window("Tile settings").collapsible(true).build(|| {
+        let Some(range) = file.selected_range else {
+            ui.text("No tile selected");
+            return;
+        };
+
         const MULTIPLE_VALUES: &str = "<multiple values>";
 
-        if let Some(range) = file.selected_range {
-            let single_tile = (range.start == range.end).then_some(range.start);
-            if single_tile.is_some() {
-                ui.text(format!(
-                    "Selected tile ({}, {})",
-                    range.start.x, range.start.y
-                ));
+        let single_tile = (range.start == range.end).then_some(range.start);
+        if single_tile.is_some() {
+            ui.text(format!(
+                "Selected tile ({}, {})",
+                range.start.x, range.start.y
+            ));
+        } else {
+            ui.text(format!(
+                "Selected {} tiles",
+                (range.end.x - range.start.x + 1) * (range.end.y - range.start.y + 1)
+            ));
+        }
+
+        ui.spacing();
+
+        let ramp_type = {
+            let ramp_type = range
+                .into_iter()
+                .map(|x| file.file[x].height.ramp_dir())
+                .all_equal_value()
+                .ok();
+            let options: &[_] = if ramp_type.is_some() {
+                &[
+                    Some(None),
+                    Some(Some(TileRampDirection::Horizontal)),
+                    Some(Some(TileRampDirection::Vertical)),
+                ]
             } else {
-                ui.text(format!(
-                    "Selected {} tiles",
-                    (range.end.x - range.start.x + 1) * (range.end.y - range.start.y + 1)
-                ));
+                &[
+                    None,
+                    Some(None),
+                    Some(Some(TileRampDirection::Horizontal)),
+                    Some(Some(TileRampDirection::Vertical)),
+                ]
+            };
+            let mut index = options.iter().position(|&x| x == ramp_type).unwrap();
+            let changed = ui.combo("Height type", &mut index, options, |&value| {
+                match value {
+                    None => MULTIPLE_VALUES,
+                    Some(None) => "Flat",
+                    Some(Some(TileRampDirection::Horizontal)) => "West/East Ramp",
+                    Some(Some(TileRampDirection::Vertical)) => "North/South Ramp",
+                }
+                .into()
+            });
+            if changed && let Some(new_type) = options[index] {
+                file.change_heights(&mut commands, range, |h| h.with_ramp_dir(new_type));
+                Some(new_type)
+            } else {
+                ramp_type
             }
+        };
 
-            ui.spacing();
-
-            let ramp_type = {
-                let ramp_type = range
+        let height_input = |label, mut value: Option<_>| {
+            if let Some(value) = value.as_mut() {
+                if ui
+                    .input_scalar(label, value)
+                    .step(0.25)
+                    .step_fast(1.0)
+                    .display_format("%.2f")
+                    .build()
+                {
+                    Some(*value)
+                } else {
+                    None
+                }
+            } else {
+                let mut buf = MULTIPLE_VALUES.to_string();
+                if ui.input_text(label, &mut buf).build() {
+                    buf.parse().ok()
+                } else {
+                    None
+                }
+            }
+        };
+        match ramp_type {
+            None => {}
+            Some(None) => {
+                let height = range
                     .into_iter()
-                    .map(|x| file.file[x].height.ramp_dir())
+                    .map(|x| file.file[x].height.center_height())
                     .all_equal_value()
                     .ok();
-                let options: &[_] = if ramp_type.is_some() {
+                if let Some(height) = height_input("Height", height) {
+                    file.edit_map(
+                        &mut commands,
+                        MapEdit::ChangeHeight(
+                            range,
+                            vec![
+                                TileHeight::Flat {
+                                    ramp: MustBeBool,
+                                    height,
+                                };
+                                range.area()
+                            ],
+                        ),
+                    );
+                }
+            }
+            Some(Some(dir)) => {
+                let (neg_label, pos_label) = match dir {
+                    TileRampDirection::Horizontal => ("West height", "East height"),
+                    TileRampDirection::Vertical => ("North height", "South height"),
+                };
+                let neg_height = range
+                    .into_iter()
+                    .map(|x| file.file[x].height.neg_height())
+                    .all_equal_value()
+                    .ok();
+                let pos_height = range
+                    .into_iter()
+                    .map(|x| file.file[x].height.pos_height())
+                    .all_equal_value()
+                    .ok();
+                if let Some(height) = height_input(neg_label, neg_height) {
+                    file.change_heights(&mut commands, range, |h| h.with_neg_height(height));
+                }
+                if let Some(height) = height_input(pos_label, pos_height) {
+                    file.change_heights(&mut commands, range, |h| h.with_pos_height(height));
+                }
+                if ui.button("Flip") {
+                    file.change_heights(&mut commands, range, TileHeight::with_flipped_heights);
+                }
+            }
+        }
+
+        ui.spacing();
+
+        if let Some(_token) = ui
+            .tree_node_config("Connections")
+            .framed(true)
+            .tree_push_on_open(false)
+            .push()
+        {
+            for direction in Direction::ALL_CLOCKWISE {
+                let connection_type = range
+                    .into_iter()
+                    .map(|x| file.file[x].connections[*direction])
+                    .all_equal_value()
+                    .ok();
+                let options: &[_] = if connection_type.is_some() {
                     &[
-                        Some(None),
-                        Some(Some(TileRampDirection::Horizontal)),
-                        Some(Some(TileRampDirection::Vertical)),
+                        Some(Connection::Unconditional(false)),
+                        Some(Connection::Unconditional(true)),
+                        Some(Connection::Conditional(ConnectionCondition::Lock)),
                     ]
                 } else {
                     &[
                         None,
-                        Some(None),
-                        Some(Some(TileRampDirection::Horizontal)),
-                        Some(Some(TileRampDirection::Vertical)),
+                        Some(Connection::Unconditional(false)),
+                        Some(Connection::Unconditional(true)),
+                        Some(Connection::Conditional(ConnectionCondition::Lock)),
                     ]
                 };
-                let mut index = options.iter().position(|&x| x == ramp_type).unwrap();
-                let changed = ui.combo("Height type", &mut index, options, |&value| {
+                let mut index = options.iter().position(|&x| x == connection_type).unwrap();
+                let changed = ui.combo(direction, &mut index, options, |&value| {
                     match value {
                         None => MULTIPLE_VALUES,
-                        Some(None) => "Flat",
-                        Some(Some(TileRampDirection::Horizontal)) => "West/East Ramp",
-                        Some(Some(TileRampDirection::Vertical)) => "North/South Ramp",
+                        Some(Connection::Unconditional(false)) => "Block",
+                        Some(Connection::Unconditional(true)) => "Passable",
+                        Some(Connection::Conditional(ConnectionCondition::Lock)) => "Locked gate",
                     }
                     .into()
                 });
                 if changed && let Some(new_type) = options[index] {
-                    file.change_heights(&mut commands, range, |h| h.with_ramp_dir(new_type));
-                    Some(new_type)
-                } else {
-                    ramp_type
-                }
-            };
-
-            let height_input = |label, mut value: Option<_>| {
-                if let Some(value) = value.as_mut() {
-                    if ui
-                        .input_scalar(label, value)
-                        .step(0.25)
-                        .step_fast(1.0)
-                        .display_format("%.2f")
-                        .build()
-                    {
-                        Some(*value)
-                    } else {
-                        None
-                    }
-                } else {
-                    let mut buf = MULTIPLE_VALUES.to_string();
-                    if ui.input_text(label, &mut buf).build() {
-                        buf.parse().ok()
-                    } else {
-                        None
-                    }
-                }
-            };
-            match ramp_type {
-                None => {}
-                Some(None) => {
-                    let height = range
-                        .into_iter()
-                        .map(|x| file.file[x].height.center_height())
-                        .all_equal_value()
-                        .ok();
-                    if let Some(height) = height_input("Height", height) {
-                        file.edit_map(
-                            &mut commands,
-                            MapEdit::ChangeHeight(
-                                range,
-                                vec![
-                                    TileHeight::Flat {
-                                        ramp: MustBeBool,
-                                        height,
-                                    };
-                                    range.area()
-                                ],
-                            ),
-                        );
-                    }
-                }
-                Some(Some(dir)) => {
-                    let (neg_label, pos_label) = match dir {
-                        TileRampDirection::Horizontal => ("West height", "East height"),
-                        TileRampDirection::Vertical => ("North height", "South height"),
-                    };
-                    let neg_height = range
-                        .into_iter()
-                        .map(|x| file.file[x].height.neg_height())
-                        .all_equal_value()
-                        .ok();
-                    let pos_height = range
-                        .into_iter()
-                        .map(|x| file.file[x].height.pos_height())
-                        .all_equal_value()
-                        .ok();
-                    if let Some(height) = height_input(neg_label, neg_height) {
-                        file.change_heights(&mut commands, range, |h| h.with_neg_height(height));
-                    }
-                    if let Some(height) = height_input(pos_label, pos_height) {
-                        file.change_heights(&mut commands, range, |h| h.with_pos_height(height));
-                    }
-                    if ui.button("Flip") {
-                        file.change_heights(&mut commands, range, TileHeight::with_flipped_heights);
-                    }
+                    file.edit_map(
+                        &mut commands,
+                        MapEdit::ChangeConnection(range, *direction, vec![new_type; range.area()]),
+                    );
                 }
             }
+        }
 
-            ui.spacing();
-
-            if let Some(_token) = ui
-                .tree_node_config("Connections")
+        if let Some(atlas) = state.atlas_texture
+            && let Some(icon_atlas) = state.icon_atlas_texture
+            && let Some(_token) = ui
+                .tree_node_config("Materials")
                 .framed(true)
                 .tree_push_on_open(false)
                 .push()
-            {
-                for direction in Direction::ALL_CLOCKWISE {
-                    let connection_type = range
-                        .into_iter()
-                        .map(|x| file.file[x].connections[*direction])
-                        .all_equal_value()
-                        .ok();
-                    let options: &[_] = if connection_type.is_some() {
-                        &[
-                            Some(Connection::Unconditional(false)),
-                            Some(Connection::Unconditional(true)),
-                            Some(Connection::Conditional(ConnectionCondition::Lock)),
-                        ]
-                    } else {
-                        &[
-                            None,
-                            Some(Connection::Unconditional(false)),
-                            Some(Connection::Unconditional(true)),
-                            Some(Connection::Conditional(ConnectionCondition::Lock)),
-                        ]
-                    };
-                    let mut index = options.iter().position(|&x| x == connection_type).unwrap();
-                    let changed = ui.combo(direction, &mut index, options, |&value| {
-                        match value {
-                            None => MULTIPLE_VALUES,
-                            Some(Connection::Unconditional(false)) => "Block",
-                            Some(Connection::Unconditional(true)) => "Passable",
-                            Some(Connection::Conditional(ConnectionCondition::Lock)) => {
-                                "Locked gate"
-                            }
-                        }
-                        .into()
-                    });
-                    if changed && let Some(new_type) = options[index] {
-                        file.edit_map(
-                            &mut commands,
-                            MapEdit::ChangeConnection(
-                                range,
-                                *direction,
-                                vec![new_type; range.area()],
-                            ),
-                        );
-                    }
-                }
-            }
-
-            if let Some(atlas) = state.atlas_texture
-                && let Some(icon_atlas) = state.icon_atlas_texture
-                && let Some(_token) = ui
-                    .tree_node_config("Materials")
-                    .framed(true)
-                    .tree_push_on_open(false)
-                    .push()
-            {
-                const MATERIAL_PREVIEW_SIZE: [f32; 2] = [64.0; 2];
-                let mut material_button = |id, location| {
-                    let common_material = range
-                        .into_iter()
-                        .map(|x| file.file[x].materials[location])
-                        .all_equal_value()
-                        .ok();
-                    let clicked = if let Some(material) = common_material {
-                        let (u1, v1, u2, v2) = material.to_uv_coords();
-                        ui.image_button_config(id, atlas, MATERIAL_PREVIEW_SIZE)
-                            .uv0([u1, v1])
-                            .uv1([u2, v2])
-                            .build()
-                    } else {
-                        ui.button_with_size(id, MATERIAL_PREVIEW_SIZE)
-                    };
-                    if clicked {
-                        state.material_target = Some((range, location));
-                        open_material_picker = true;
-                    }
+        {
+            const MATERIAL_PREVIEW_SIZE: [f32; 2] = [64.0; 2];
+            let mut material_button = |id, location| {
+                let common_material = range
+                    .into_iter()
+                    .map(|x| file.file[x].materials[location])
+                    .all_equal_value()
+                    .ok();
+                let clicked = if let Some(material) = common_material {
+                    let (u1, v1, u2, v2) = material.to_uv_coords();
+                    ui.image_button_config(id, atlas, MATERIAL_PREVIEW_SIZE)
+                        .uv0([u1, v1])
+                        .uv1([u2, v2])
+                        .build()
+                } else {
+                    ui.button_with_size(id, MATERIAL_PREVIEW_SIZE)
                 };
+                if clicked {
+                    state.material_target = Some((range, location));
+                    open_material_picker = true;
+                }
+            };
 
-                material_button(Cow::Borrowed("##Top material"), None);
-                ui.same_line();
-                ui.text("Top material");
+            material_button(Cow::Borrowed("##Top material"), None);
+            ui.same_line();
+            ui.text("Top material");
 
-                let mut edit = None;
-                for side in Direction::ALL_CLOCKWISE {
-                    let Some(_token) = ui.tree_node(side) else {
-                        continue;
-                    };
-                    let len_iter = range
-                        .into_iter()
-                        .map(|x| file.file[x].materials.wall_material[*side].len());
-                    let segment_count = len_iter.clone().all_equal_value().ok();
-                    let min_segments = segment_count.unwrap_or_else(|| len_iter.min().unwrap());
-                    for index in 0..min_segments {
-                        let location = Some((*side, index));
-                        material_button(Cow::Owned(format!("##{side} material {index}")), location);
+            let mut edit = None;
+            for side in Direction::ALL_CLOCKWISE {
+                let Some(_token) = ui.tree_node(side) else {
+                    continue;
+                };
+                let len_iter = range
+                    .into_iter()
+                    .map(|x| file.file[x].materials.wall_material[*side].len());
+                let segment_count = len_iter.clone().all_equal_value().ok();
+                let min_segments = segment_count.unwrap_or_else(|| len_iter.min().unwrap());
+                for index in 0..min_segments {
+                    let location = Some((*side, index));
+                    material_button(Cow::Owned(format!("##{side} material {index}")), location);
 
-                        ui.same_line();
-                        ui.disabled(index == 0, || {
-                            if ui
-                                .image_button_config(
-                                    format!("Move up {index}"),
-                                    icon_atlas,
-                                    [16.0; 2],
-                                )
-                                .uv0([0.0, 0.5])
-                                .uv1([0.5, 1.0])
-                                .build()
-                            {
-                                edit = Some(MapEdit::ChangeMaterial(
-                                    range,
-                                    location,
-                                    vec![MaterialEdit::MoveUp; range.area()],
-                                ));
-                            }
-                        });
+                    ui.same_line();
+                    ui.disabled(index == 0, || {
+                        if ui
+                            .image_button_config(format!("Move up {index}"), icon_atlas, [16.0; 2])
+                            .uv0([0.0, 0.5])
+                            .uv1([0.5, 1.0])
+                            .build()
+                        {
+                            edit = Some(MapEdit::ChangeMaterial(
+                                range,
+                                location,
+                                vec![MaterialEdit::MoveUp; range.area()],
+                            ));
+                        }
+                    });
 
-                        ui.same_line();
-                        ui.disabled(index >= min_segments - 1, || {
-                            if ui.image_button_config(
+                    ui.same_line();
+                    ui.disabled(index >= min_segments - 1, || {
+                        if ui
+                            .image_button_config(
                                 format!("Move down {index}"),
                                 icon_atlas,
                                 [16.0; 2],
                             )
                             .uv0([0.5, 0.5])
                             .uv1([1.0, 1.0])
-                            .build() {
-                                edit = Some(MapEdit::ChangeMaterial(
-                                    range,
-                                    location,
-                                    vec![MaterialEdit::MoveDown; range.area()],
-                                ));
-                            }
-                        });
+                            .build()
+                        {
+                            edit = Some(MapEdit::ChangeMaterial(
+                                range,
+                                location,
+                                vec![MaterialEdit::MoveDown; range.area()],
+                            ));
+                        }
+                    });
 
-                        ui.same_line();
-                        ui.disabled(min_segments < 2, || {
-                            if ui.image_button_config(
-                                format!("Remove {index}"),
-                                icon_atlas,
-                                [16.0; 2],
-                            )
+                    ui.same_line();
+                    ui.disabled(min_segments < 2, || {
+                        if ui
+                            .image_button_config(format!("Remove {index}"), icon_atlas, [16.0; 2])
                             .uv0([0.5, 0.0])
                             .uv1([1.0, 0.5])
-                            .build() {
-                                edit = Some(MapEdit::ChangeMaterial(
-                                    range,
-                                    location,
-                                    vec![MaterialEdit::Remove; range.area()],
-                                ));
-                            }
-                        });
-                    }
-                    if segment_count.is_some() && ui.button("Add segment") {
-                        edit = Some(MapEdit::ChangeMaterial(
-                            range,
-                            Some((*side, min_segments)),
-                            vec![MaterialEdit::Insert(MpsMaterial::default()); range.area()],
-                        ));
-                    }
+                            .build()
+                        {
+                            edit = Some(MapEdit::ChangeMaterial(
+                                range,
+                                location,
+                                vec![MaterialEdit::Remove; range.area()],
+                            ));
+                        }
+                    });
                 }
-                if let Some(edit) = edit {
-                    let (location, material) = match &edit {
-                        MapEdit::ChangeMaterial(_, location, material) => (*location, material[0]),
-                        _ => unreachable!(),
-                    };
-                    file.edit_map(&mut commands, edit);
-                    if matches!(material, MaterialEdit::Insert(_)) {
-                        state.material_target = Some((range, location));
-                        open_material_picker = true;
-                    }
+                if segment_count.is_some() && ui.button("Add segment") {
+                    edit = Some(MapEdit::ChangeMaterial(
+                        range,
+                        Some((*side, min_segments)),
+                        vec![MaterialEdit::Insert(MpsMaterial::default()); range.area()],
+                    ));
                 }
             }
-        } else {
-            ui.text("No tile selected");
+            if let Some(edit) = edit {
+                let (location, material) = match &edit {
+                    MapEdit::ChangeMaterial(_, location, material) => (*location, material[0]),
+                    _ => unreachable!(),
+                };
+                file.edit_map(&mut commands, edit);
+                if matches!(material, MaterialEdit::Insert(_)) {
+                    state.material_target = Some((range, location));
+                    open_material_picker = true;
+                }
+            }
         }
     });
     if open_material_picker {
