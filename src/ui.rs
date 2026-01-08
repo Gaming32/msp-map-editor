@@ -617,51 +617,6 @@ fn draw_imgui(
 
         ui.spacing();
 
-        if let Some(_token) = ui
-            .tree_node_config("Connections")
-            .framed(true)
-            .tree_push_on_open(false)
-            .push()
-        {
-            for direction in Direction::ALL_CLOCKWISE {
-                let connection_type = range
-                    .into_iter()
-                    .map(|x| file.file[x].connections[*direction])
-                    .all_equal_value()
-                    .ok();
-                let options: &[_] = if connection_type.is_some() {
-                    &[
-                        Some(Connection::Unconditional(false)),
-                        Some(Connection::Unconditional(true)),
-                        Some(Connection::Conditional(ConnectionCondition::Lock)),
-                    ]
-                } else {
-                    &[
-                        None,
-                        Some(Connection::Unconditional(false)),
-                        Some(Connection::Unconditional(true)),
-                        Some(Connection::Conditional(ConnectionCondition::Lock)),
-                    ]
-                };
-                let mut index = options.iter().position(|&x| x == connection_type).unwrap();
-                let changed = ui.combo(direction, &mut index, options, |&value| {
-                    match value {
-                        None => MULTIPLE_VALUES,
-                        Some(Connection::Unconditional(false)) => "Block",
-                        Some(Connection::Unconditional(true)) => "Passable",
-                        Some(Connection::Conditional(ConnectionCondition::Lock)) => "Locked gate",
-                    }
-                    .into()
-                });
-                if changed && let Some(new_type) = options[index] {
-                    file.edit_map(
-                        &mut commands,
-                        MapEdit::ChangeConnection(range, *direction, vec![new_type; range.area()]),
-                    );
-                }
-            }
-        }
-
         if let Some(atlas) = state.atlas_texture
             && let Some(icon_atlas) = state.icon_atlas_texture
             && let Some(_token) = ui
@@ -779,6 +734,51 @@ fn draw_imgui(
                 if matches!(material, MaterialEdit::Insert(_)) {
                     state.material_target = Some((range, location));
                     open_material_picker = true;
+                }
+            }
+        }
+
+        if let Some(_token) = ui
+            .tree_node_config("Connections")
+            .framed(true)
+            .tree_push_on_open(false)
+            .push()
+        {
+            for direction in Direction::ALL_CLOCKWISE {
+                let connection_type = range
+                    .into_iter()
+                    .map(|x| file.file[x].connections[*direction])
+                    .all_equal_value()
+                    .ok();
+                let options: &[_] = if connection_type.is_some() {
+                    &[
+                        Some(Connection::Unconditional(false)),
+                        Some(Connection::Unconditional(true)),
+                        Some(Connection::Conditional(ConnectionCondition::Lock)),
+                    ]
+                } else {
+                    &[
+                        None,
+                        Some(Connection::Unconditional(false)),
+                        Some(Connection::Unconditional(true)),
+                        Some(Connection::Conditional(ConnectionCondition::Lock)),
+                    ]
+                };
+                let mut index = options.iter().position(|&x| x == connection_type).unwrap();
+                let changed = ui.combo(direction, &mut index, options, |&value| {
+                    match value {
+                        None => MULTIPLE_VALUES,
+                        Some(Connection::Unconditional(false)) => "Block",
+                        Some(Connection::Unconditional(true)) => "Passable",
+                        Some(Connection::Conditional(ConnectionCondition::Lock)) => "Locked gate",
+                    }
+                        .into()
+                });
+                if changed && let Some(new_type) = options[index] {
+                    file.edit_map(
+                        &mut commands,
+                        MapEdit::ChangeConnection(range, *direction, vec![new_type; range.area()]),
+                    );
                 }
             }
         }
