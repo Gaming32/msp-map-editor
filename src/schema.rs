@@ -457,7 +457,7 @@ impl Index<MaterialLocation> for MaterialMap {
     fn index(&self, index: MaterialLocation) -> &Self::Output {
         match index {
             None => &self.material,
-            Some((side, index)) => &self.wall_material[side][index]
+            Some((side, index)) => &self.wall_material[side][index],
         }
     }
 }
@@ -466,7 +466,7 @@ impl IndexMut<MaterialLocation> for MaterialMap {
     fn index_mut(&mut self, index: MaterialLocation) -> &mut Self::Output {
         match index {
             None => &mut self.material,
-            Some((side, index)) => &mut self.wall_material[side][index]
+            Some((side, index)) => &mut self.wall_material[side][index],
         }
     }
 }

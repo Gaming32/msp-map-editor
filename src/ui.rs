@@ -1,8 +1,8 @@
 use crate::assets::{icons_atlas, unset_texture_icon};
 use crate::docking::UiDocking;
 use crate::load_file::{
-    new_file, open_file, save_file, save_file_as, FileLoaded, LoadedFile, LoadedTexture,
-    MapFileDialog,
+    FileLoaded, LoadedFile, LoadedTexture, MapFileDialog, new_file, open_file, save_file,
+    save_file_as,
 };
 use crate::schema::{
     Connection, ConnectionCondition, CubeMap, MpsMaterial, TileHeight, TileRampDirection,
@@ -11,9 +11,9 @@ use crate::sync::{Direction, MaterialEdit, MaterialLocation, PresetView};
 use crate::sync::{EditObject, MapEdit, MapEdited, SelectForEditing};
 use crate::tile_range::TileRange;
 use crate::viewport::ViewportTarget;
-use crate::{shortcut_pressed, Directories};
-use bevy::asset::io::embedded::GetAssetServer;
+use crate::{Directories, shortcut_pressed};
 use bevy::asset::LoadState;
+use bevy::asset::io::embedded::GetAssetServer;
 use bevy::image::{ImageFormatSetting, ImageLoaderSettings};
 use bevy::prelude::Image as BevyImage;
 use bevy::prelude::*;
@@ -502,45 +502,60 @@ fn draw_imgui(
             ));
         }
 
+        macro_rules! simple_combo_box {
+            (
+                label: $label:expr,
+                getter: ($($getter:tt)+),
+                options: [$($option:expr),* $(,)?],
+                option_labels: {
+                    $($option_pat:pat_param => $option_display:expr,)*
+                },
+                editor: |$editor_var:ident| $editor:expr,
+            ) => {{
+                let single_value = range
+                    .into_iter()
+                    .map(|x| file.file[x]$($getter)+)
+                    .all_equal_value()
+                    .ok();
+                let options: &[_] = if single_value.is_some() {
+                    &[
+                        $(Some($option),)+
+                    ]
+                } else {
+                    &[
+                        None,
+                        $(Some($option),)+
+                    ]
+                };
+                let mut index = options.iter().position(|&x| x == single_value).unwrap();
+                let changed = ui.combo($label, &mut index, options, |&value| {
+                    match value {
+                        None => MULTIPLE_VALUES.into(),
+                        $(Some($option_pat) => $option_display.into(),)*
+                    }
+                });
+                if changed && let Some($editor_var) = options[index] {
+                    $editor;
+                    Some($editor_var)
+                } else {
+                    single_value
+                }
+            }};
+        }
+
         ui.spacing();
 
-        let ramp_type = {
-            let ramp_type = range
-                .into_iter()
-                .map(|x| file.file[x].height.ramp_dir())
-                .all_equal_value()
-                .ok();
-            let options: &[_] = if ramp_type.is_some() {
-                &[
-                    Some(None),
-                    Some(Some(TileRampDirection::Horizontal)),
-                    Some(Some(TileRampDirection::Vertical)),
-                ]
-            } else {
-                &[
-                    None,
-                    Some(None),
-                    Some(Some(TileRampDirection::Horizontal)),
-                    Some(Some(TileRampDirection::Vertical)),
-                ]
-            };
-            let mut index = options.iter().position(|&x| x == ramp_type).unwrap();
-            let changed = ui.combo("Height type", &mut index, options, |&value| {
-                match value {
-                    None => MULTIPLE_VALUES,
-                    Some(None) => "Flat",
-                    Some(Some(TileRampDirection::Horizontal)) => "West/East Ramp",
-                    Some(Some(TileRampDirection::Vertical)) => "North/South Ramp",
-                }
-                .into()
-            });
-            if changed && let Some(new_type) = options[index] {
-                file.change_heights(&mut commands, range, |h| h.with_ramp_dir(new_type));
-                Some(new_type)
-            } else {
-                ramp_type
-            }
-        };
+        let ramp_type = simple_combo_box!(
+            label: "Height type",
+            getter: (.height.ramp_dir()),
+            options: [None, Some(TileRampDirection::Horizontal), Some(TileRampDirection::Vertical)],
+            option_labels: {
+                None => "Flat",
+                Some(TileRampDirection::Horizontal) => "West/East Ramp",
+                Some(TileRampDirection::Vertical) => "North/South Ramp",
+            },
+            editor: |new_type| file.change_heights(&mut commands, range, |h| h.with_ramp_dir(new_type)),
+        );
 
         let height_input = |label, mut value: Option<_>| {
             if let Some(value) = value.as_mut() {
@@ -745,41 +760,24 @@ fn draw_imgui(
             .push()
         {
             for direction in Direction::ALL_CLOCKWISE {
-                let connection_type = range
-                    .into_iter()
-                    .map(|x| file.file[x].connections[*direction])
-                    .all_equal_value()
-                    .ok();
-                let options: &[_] = if connection_type.is_some() {
-                    &[
-                        Some(Connection::Unconditional(false)),
-                        Some(Connection::Unconditional(true)),
-                        Some(Connection::Conditional(ConnectionCondition::Lock)),
-                    ]
-                } else {
-                    &[
-                        None,
-                        Some(Connection::Unconditional(false)),
-                        Some(Connection::Unconditional(true)),
-                        Some(Connection::Conditional(ConnectionCondition::Lock)),
-                    ]
-                };
-                let mut index = options.iter().position(|&x| x == connection_type).unwrap();
-                let changed = ui.combo(direction, &mut index, options, |&value| {
-                    match value {
-                        None => MULTIPLE_VALUES,
-                        Some(Connection::Unconditional(false)) => "Block",
-                        Some(Connection::Unconditional(true)) => "Passable",
-                        Some(Connection::Conditional(ConnectionCondition::Lock)) => "Locked gate",
-                    }
-                        .into()
-                });
-                if changed && let Some(new_type) = options[index] {
-                    file.edit_map(
+                simple_combo_box!(
+                    label: direction,
+                    getter: (.connections[*direction]),
+                    options: [
+                        Connection::Unconditional(false),
+                        Connection::Unconditional(true),
+                        Connection::Conditional(ConnectionCondition::Lock),
+                    ],
+                    option_labels: {
+                        Connection::Unconditional(false) => "Block",
+                        Connection::Unconditional(true) => "Passable",
+                        Connection::Conditional(ConnectionCondition::Lock) => "Locked gate",
+                    },
+                    editor: |new_type| file.edit_map(
                         &mut commands,
                         MapEdit::ChangeConnection(range, *direction, vec![new_type; range.area()]),
-                    );
-                }
+                    ),
+                );
             }
         }
     });
