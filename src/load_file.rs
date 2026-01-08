@@ -1,20 +1,20 @@
-use crate::TITLE;
 use crate::schema::{MapFile, MpsVec2, Textures, TileData, TileHeight};
-use crate::sync::{Direction, MapEdit, MapEdited};
+use crate::sync::{Direction, MapEdit, MapEdited, MaterialEdit};
 use crate::tile_range::TileRange;
 use crate::ui::UiState;
+use crate::TITLE;
 use bevy::image::{ImageFormatSetting, ImageLoaderSettings, ImageSampler};
 use bevy::prelude::*;
 use bevy::tasks::AsyncComputeTaskPool;
 use bevy::window::PrimaryWindow;
-use bevy_file_dialog::DialogFileLoaded;
 use bevy_file_dialog::prelude::*;
+use bevy_file_dialog::DialogFileLoaded;
 use itertools::Itertools;
 use native_dialog::MessageLevel;
 use relative_path::{PathExt, RelativePathBuf};
 use serde::Serialize;
-use serde_json::Serializer;
 use serde_json::ser::PrettyFormatter;
+use serde_json::Serializer;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::{env, fs, io, path};
@@ -68,15 +68,15 @@ impl LoadedFile {
             return false;
         }
 
-        let reversed = match edit {
+        let reversed = match &edit {
             MapEdit::StartingPosition(_) => MapEdit::StartingPosition(self.file.starting_tile),
             MapEdit::Skybox(index, _) => {
-                MapEdit::Skybox(index, self.loaded_textures.skybox[index].clone())
+                MapEdit::Skybox(*index, self.loaded_textures.skybox[*index].clone())
             }
             MapEdit::Atlas(_) => MapEdit::Atlas(self.loaded_textures.atlas.clone()),
-            MapEdit::ExpandMap(side, _) => MapEdit::ShrinkMap(side),
+            MapEdit::ExpandMap(side, _) => MapEdit::ShrinkMap(*side),
             MapEdit::ShrinkMap(side) => MapEdit::ExpandMap(
-                side,
+                *side,
                 Some(match side {
                     Direction::West => self.file.data.iter_col(0).cloned().collect(),
                     Direction::East => self
@@ -94,22 +94,49 @@ impl LoadedFile {
                         .collect(),
                 }),
             ),
-            MapEdit::AdjustHeight(range, change) => MapEdit::AdjustHeight(range, -change),
+            MapEdit::AdjustHeight(range, change) => MapEdit::AdjustHeight(*range, -change),
             MapEdit::ChangeHeight(range, _) => MapEdit::ChangeHeight(
-                range,
+                *range,
                 range.into_iter().map(|pos| self.file[pos].height).collect(),
             ),
             MapEdit::ChangeConnection(range, direction, _) => MapEdit::ChangeConnection(
-                range,
-                direction,
+                *range,
+                *direction,
                 range
                     .into_iter()
-                    .map(|pos| self.file[pos].connections[direction])
+                    .map(|pos| self.file[pos].connections[*direction])
+                    .collect(),
+            ),
+            MapEdit::ChangeMaterial(range, location, edits) => MapEdit::ChangeMaterial(
+                *range,
+                *location,
+                range
+                    .into_iter()
+                    .zip(edits.iter())
+                    .map(|(pos, &edit)| match edit {
+                        MaterialEdit::Set(_) => {
+                            MaterialEdit::Set(self.file[pos].materials[*location])
+                        }
+                        MaterialEdit::MoveUp => MaterialEdit::MoveUp,
+                        MaterialEdit::MoveDown => MaterialEdit::MoveDown,
+                        MaterialEdit::Remove => {
+                            MaterialEdit::Insert(self.file[pos].materials[*location])
+                        }
+                        MaterialEdit::Insert(_) => MaterialEdit::Remove,
+                    })
                     .collect(),
             ),
         };
         if edit == reversed {
-            return false;
+            let is_equal_reverse = match &reversed {
+                MapEdit::ChangeMaterial(_, _, edits) => edits
+                    .iter()
+                    .all(|e| matches!(e, MaterialEdit::MoveUp | MaterialEdit::MoveDown)),
+                _ => false,
+            };
+            if !is_equal_reverse {
+                return false;
+            }
         }
 
         self.history.truncate(self.history_index);
@@ -202,6 +229,33 @@ impl LoadedFile {
                 );
                 for (pos, connection) in range.into_iter().zip(new) {
                     self.file[pos].connections[*direction] = *connection;
+                }
+            }
+            MapEdit::ChangeMaterial(range, location, new) => {
+                assert_eq!(
+                    range.area(),
+                    new.len(),
+                    "MapEdit::ChangeMaterial params have differing sizes"
+                );
+                for (pos, &edit) in range.into_iter().zip(new) {
+                    match edit {
+                        MaterialEdit::Set(material) => {
+                            self.file[pos].materials[*location] = material;
+                        }
+                        _ => {
+                            let (side, index) = location.unwrap();
+                            let vec = &mut self.file[pos].materials.wall_material[side];
+                            match edit {
+                                MaterialEdit::Set(_) => unreachable!(),
+                                MaterialEdit::MoveUp => vec.swap(index - 1, index),
+                                MaterialEdit::MoveDown => vec.swap(index, index + 1),
+                                MaterialEdit::Remove => {
+                                    vec.remove(index);
+                                }
+                                MaterialEdit::Insert(material) => vec.insert(index, material),
+                            }
+                        }
+                    }
                 }
             }
         }

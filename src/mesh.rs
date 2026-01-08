@@ -484,7 +484,7 @@ impl<'a> State<'a> {
 fn internal_mesh_top(state: &mut State, x: usize, y: usize, tile: &TileData, y_offset: f32) {
     let xf = x as f32;
     let yf = y as f32;
-    let uv = tile.material.to_uv_coords();
+    let uv = tile.materials.material.to_uv_coords();
     match tile.height {
         TileHeight::Flat { height, .. } => {
             let height32 = height as f32 + y_offset;
@@ -526,10 +526,10 @@ fn mesh_wall(
     let yf = y as f32;
 
     let materials = match direction {
-        Direction::West => &tile.wall_material.west,
-        Direction::East => &tile.wall_material.east,
-        Direction::North => &tile.wall_material.north,
-        Direction::South => &tile.wall_material.south,
+        Direction::West => &tile.materials.wall_material.west,
+        Direction::East => &tile.materials.wall_material.east,
+        Direction::North => &tile.materials.wall_material.north,
+        Direction::South => &tile.materials.wall_material.south,
     };
 
     let min_height = tile.height.min_height() as f32;

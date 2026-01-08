@@ -1,16 +1,19 @@
-use crate::assets::{reload_icon, unset_texture_icon};
+use crate::assets::{icons_atlas, unset_texture_icon};
 use crate::docking::UiDocking;
 use crate::load_file::{
-    FileLoaded, LoadedFile, LoadedTexture, MapFileDialog, new_file, open_file, save_file,
-    save_file_as,
+    new_file, open_file, save_file, save_file_as, FileLoaded, LoadedFile, LoadedTexture,
+    MapFileDialog,
 };
-use crate::schema::{Connection, ConnectionCondition, CubeMap, TileHeight, TileRampDirection};
-use crate::sync::{Direction, PresetView};
+use crate::schema::{
+    Connection, ConnectionCondition, CubeMap, MpsMaterial, TileHeight, TileRampDirection,
+};
+use crate::sync::{Direction, MaterialEdit, MaterialLocation, PresetView};
 use crate::sync::{EditObject, MapEdit, MapEdited, SelectForEditing};
+use crate::tile_range::TileRange;
 use crate::viewport::ViewportTarget;
-use crate::{Directories, shortcut_pressed};
-use bevy::asset::LoadState;
+use crate::{shortcut_pressed, Directories};
 use bevy::asset::io::embedded::GetAssetServer;
+use bevy::asset::LoadState;
 use bevy::image::{ImageFormatSetting, ImageLoaderSettings};
 use bevy::prelude::Image as BevyImage;
 use bevy::prelude::*;
@@ -21,6 +24,7 @@ use bevy_mod_imgui::prelude::*;
 use imgui::Image as ImguiImage;
 use itertools::Itertools;
 use monostate::MustBeBool;
+use std::borrow::Cow;
 use std::mem;
 use std::time::Duration;
 
@@ -36,7 +40,7 @@ impl Plugin for MapEditorUi {
         app.insert_resource(UiState {
             free_timer: Timer::new(Duration::from_millis(500), TimerMode::Repeating),
             unset_texture_icon: unset_texture_icon(app.get_asset_server()),
-            reload_icon_handle: reload_icon(app.get_asset_server()),
+            icon_atlas_handle: icons_atlas(app.get_asset_server()),
             ..Default::default()
         })
         .add_plugins((
@@ -76,8 +80,9 @@ pub struct UiState {
     atlas_texture: Option<TextureId>,
     waiting_textures: Vec<SettingImageLoadWait>,
     unset_texture_icon: Handle<BevyImage>,
-    reload_icon_handle: Handle<BevyImage>,
-    reload_icon: Option<TextureId>,
+    icon_atlas_handle: Handle<BevyImage>,
+    icon_atlas_texture: Option<TextureId>,
+    material_target: Option<(TileRange, MaterialLocation)>,
 }
 
 impl UiState {
@@ -158,7 +163,8 @@ fn on_map_edited(on: On<MapEdited>, mut state: ResMut<UiState>) {
         | MapEdit::ShrinkMap(_)
         | MapEdit::AdjustHeight(_, _)
         | MapEdit::ChangeHeight(_, _)
-        | MapEdit::ChangeConnection(_, _, _) => {}
+        | MapEdit::ChangeConnection(_, _, _)
+        | MapEdit::ChangeMaterial(_, _, _) => {}
     }
 }
 
@@ -240,8 +246,9 @@ fn draw_imgui(
     state.atlas_texture = atlas_texture;
     state.textures_to_free.extend(removed_textures);
 
-    if state.reload_icon.is_none() && assets.is_loaded(&state.reload_icon_handle) {
-        state.reload_icon = Some(context.register_bevy_texture(state.reload_icon_handle.clone()));
+    if state.icon_atlas_texture.is_none() && assets.is_loaded(&state.icon_atlas_handle) {
+        state.icon_atlas_texture =
+            Some(context.register_bevy_texture(state.icon_atlas_handle.clone()));
     }
 
     state.free_timer.tick(time.delta());
@@ -440,7 +447,7 @@ fn draw_imgui(
         ];
 
         if let Some(skybox) = state.skybox_textures
-            && let Some(reload_icon) = state.reload_icon
+            && let Some(icon_atlas) = state.icon_atlas_texture
             && let Some(_token) = ui
                 .tree_node_config("Skybox")
                 .framed(true)
@@ -457,7 +464,12 @@ fn draw_imgui(
                         .pick_file_path(SettingImagePick::Skybox(index));
                 }
                 ui.same_line();
-                if ui.image_button(format!("Reload {label}"), reload_icon, [16.0; 2]) {
+                if ui
+                    .image_button_config(format!("Reload {label}"), icon_atlas, [16.0; 2])
+                    .uv0([0.0, 0.0])
+                    .uv1([0.5, 0.5])
+                    .build()
+                {
                     let texture = &file.loaded_textures.skybox[index];
                     assets.reload(texture.path.clone());
                     commands.trigger(MapEdited(MapEdit::Skybox(index, texture.clone())));
@@ -468,6 +480,7 @@ fn draw_imgui(
         }
     });
 
+    let mut open_material_picker = false;
     ui.window("Tile settings").collapsible(true).build(|| {
         const MULTIPLE_VALUES: &str = "<multiple values>";
 
@@ -650,10 +663,173 @@ fn draw_imgui(
                     }
                 }
             }
+
+            if let Some(atlas) = state.atlas_texture
+                && let Some(icon_atlas) = state.icon_atlas_texture
+                && let Some(_token) = ui
+                    .tree_node_config("Materials")
+                    .framed(true)
+                    .tree_push_on_open(false)
+                    .push()
+            {
+                const MATERIAL_PREVIEW_SIZE: [f32; 2] = [64.0; 2];
+                let mut material_button = |id, location| {
+                    let common_material = range
+                        .into_iter()
+                        .map(|x| file.file[x].materials[location])
+                        .all_equal_value()
+                        .ok();
+                    let clicked = if let Some(material) = common_material {
+                        let (u1, v1, u2, v2) = material.to_uv_coords();
+                        ui.image_button_config(id, atlas, MATERIAL_PREVIEW_SIZE)
+                            .uv0([u1, v1])
+                            .uv1([u2, v2])
+                            .build()
+                    } else {
+                        ui.button_with_size(id, MATERIAL_PREVIEW_SIZE)
+                    };
+                    if clicked {
+                        state.material_target = Some((range, location));
+                        open_material_picker = true;
+                    }
+                };
+
+                material_button(Cow::Borrowed("##Top material"), None);
+                ui.same_line();
+                ui.text("Top material");
+
+                let mut edit = None;
+                for side in Direction::ALL_CLOCKWISE {
+                    let Some(_token) = ui.tree_node(side) else {
+                        continue;
+                    };
+                    let len_iter = range
+                        .into_iter()
+                        .map(|x| file.file[x].materials.wall_material[*side].len());
+                    let segment_count = len_iter.clone().all_equal_value().ok();
+                    let min_segments = segment_count.unwrap_or_else(|| len_iter.min().unwrap());
+                    for index in 0..min_segments {
+                        let location = Some((*side, index));
+                        material_button(Cow::Owned(format!("##{side} material {index}")), location);
+
+                        ui.same_line();
+                        ui.disabled(index == 0, || {
+                            if ui
+                                .image_button_config(
+                                    format!("Move up {index}"),
+                                    icon_atlas,
+                                    [16.0; 2],
+                                )
+                                .uv0([0.0, 0.5])
+                                .uv1([0.5, 1.0])
+                                .build()
+                            {
+                                edit = Some(MapEdit::ChangeMaterial(
+                                    range,
+                                    location,
+                                    vec![MaterialEdit::MoveUp; range.area()],
+                                ));
+                            }
+                        });
+
+                        ui.same_line();
+                        ui.disabled(index >= min_segments - 1, || {
+                            if ui.image_button_config(
+                                format!("Move down {index}"),
+                                icon_atlas,
+                                [16.0; 2],
+                            )
+                            .uv0([0.5, 0.5])
+                            .uv1([1.0, 1.0])
+                            .build() {
+                                edit = Some(MapEdit::ChangeMaterial(
+                                    range,
+                                    location,
+                                    vec![MaterialEdit::MoveDown; range.area()],
+                                ));
+                            }
+                        });
+
+                        ui.same_line();
+                        ui.disabled(min_segments < 2, || {
+                            if ui.image_button_config(
+                                format!("Remove {index}"),
+                                icon_atlas,
+                                [16.0; 2],
+                            )
+                            .uv0([0.5, 0.0])
+                            .uv1([1.0, 0.5])
+                            .build() {
+                                edit = Some(MapEdit::ChangeMaterial(
+                                    range,
+                                    location,
+                                    vec![MaterialEdit::Remove; range.area()],
+                                ));
+                            }
+                        });
+                    }
+                    if segment_count.is_some() && ui.button("Add segment") {
+                        edit = Some(MapEdit::ChangeMaterial(
+                            range,
+                            Some((*side, min_segments)),
+                            vec![MaterialEdit::Insert(MpsMaterial::default()); range.area()],
+                        ));
+                    }
+                }
+                if let Some(edit) = edit {
+                    let (location, material) = match &edit {
+                        MapEdit::ChangeMaterial(_, location, material) => (*location, material[0]),
+                        _ => unreachable!(),
+                    };
+                    file.edit_map(&mut commands, edit);
+                    if matches!(material, MaterialEdit::Insert(_)) {
+                        state.material_target = Some((range, location));
+                        open_material_picker = true;
+                    }
+                }
+            }
         } else {
             ui.text("No tile selected");
         }
     });
+    if open_material_picker {
+        ui.open_popup("Material picker");
+    }
+
+    viewport_target.disable_input = false;
+    if let Some(atlas) = state.atlas_texture
+        && let Some((target_range, target_location)) = state.material_target
+    {
+        ui.popup("Material picker", || {
+            viewport_target.disable_input = true;
+            let _style = ui.push_style_var(StyleVar::ItemSpacing([0.0, 0.0]));
+            let _style = ui.push_style_var(StyleVar::FramePadding([0.0, 0.0]));
+            for index in 0..MpsMaterial::TEXTURES_COUNT {
+                if index % MpsMaterial::TEXTURES_PER_ROW != 0 {
+                    ui.same_line();
+                }
+                let material = MpsMaterial::from_index(index)
+                    .expect("MpsMaterial::from_index out of sync with TEXTURES_COUNT");
+                let (u1, v1, u2, v2) = material.to_uv_coords();
+                if ui
+                    .image_button_config(format!("Material {index}"), atlas, [32.0; 2])
+                    .uv0([u1, v1])
+                    .uv1([u2, v2])
+                    .build()
+                {
+                    file.edit_map(
+                        &mut commands,
+                        MapEdit::ChangeMaterial(
+                            target_range,
+                            target_location,
+                            vec![MaterialEdit::Set(material); target_range.area()],
+                        ),
+                    );
+                    ui.close_current_popup();
+                }
+            }
+        });
+    }
 
     match mem::take(&mut state.pending_close_state) {
         PendingCloseState::PendingUi(action) if file.dirty => {
@@ -665,6 +841,7 @@ fn draw_imgui(
         }
     }
     ui.modal_popup("Are you sure?", || {
+        viewport_target.disable_input = true;
         ui.text("The current file has not been saved. Are you sure?");
 
         let mut confirm = false;

@@ -35,7 +35,7 @@ impl Plugin for EmbeddedAssetsPlugin {
             }};
         }
 
-        embedded_asset!("assets/icons/reload.png");
+        embedded_asset!("assets/icons/icons.png");
         embedded_asset!("assets/icons/unset_texture.png");
 
         embedded_asset!("assets/objects/gold_pipe.glb");
@@ -119,8 +119,8 @@ pub fn tutorial_obj(assets: &AssetServer, obj: impl Bundle) -> impl Bundle {
     )
 }
 
-pub fn reload_icon(assets: &AssetServer) -> Handle<Image> {
-    assets.load(asset_path!("icons/reload.png"))
+pub fn icons_atlas(assets: &AssetServer) -> Handle<Image> {
+    assets.load(asset_path!("icons/icons.png"))
 }
 
 pub fn unset_texture_icon(assets: &AssetServer) -> Handle<Image> {

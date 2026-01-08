@@ -35,6 +35,7 @@ pub struct ViewportTarget {
     pub texture: Handle<Image>,
     pub upper_left: Vec2,
     pub size: Vec2,
+    pub disable_input: bool,
 }
 
 pub struct ViewportPlugin;
@@ -64,6 +65,7 @@ impl Plugin for ViewportPlugin {
             texture: render_texture,
             upper_left: Vec2::default(),
             size: Vec2::new(1.0, 1.0),
+            disable_input: false,
         })
         .insert_resource(ViewportState {
             skybox: ViewportTextureSet::new(missing_skybox),
@@ -285,7 +287,7 @@ fn on_map_edited(
             change_player_pos = true;
             change_tiles_gizmos = true;
         }
-        MapEdit::ChangeConnection(_, _, _) => {
+        MapEdit::ChangeConnection(_, _, _) | MapEdit::ChangeMaterial(_, _, _) => {
             commands.trigger(RemeshMap);
         }
     }
@@ -881,6 +883,9 @@ fn custom_mouse_pick_events(
     mut cursor_last: Local<Vec2>,
     mut pointer_inputs: MessageWriter<PointerInput>,
 ) {
+    if viewport_target.disable_input {
+        return;
+    }
     for window_event in window_events.read() {
         match window_event {
             WindowEvent::CursorMoved(event) => {

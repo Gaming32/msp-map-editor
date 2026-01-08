@@ -1,8 +1,8 @@
 use crate::load_file::LoadedTexture;
-use crate::schema::{Connection, MpsVec2, TileData, TileHeight};
+use crate::schema::{Connection, MpsMaterial, MpsVec2, TileData, TileHeight};
 use crate::tile_range::TileRange;
 use bevy::prelude::Event;
-use strum::AsRefStr;
+use strum::{AsRefStr, Display};
 
 #[derive(Event, Clone, Debug)]
 pub struct MapEdited(pub MapEdit);
@@ -17,6 +17,18 @@ pub enum MapEdit {
     AdjustHeight(TileRange, f64),
     ChangeHeight(TileRange, Vec<TileHeight>),
     ChangeConnection(TileRange, Direction, Vec<Connection>),
+    ChangeMaterial(TileRange, MaterialLocation, Vec<MaterialEdit>),
+}
+
+pub type MaterialLocation = Option<(Direction, usize)>;
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum MaterialEdit {
+    Set(MpsMaterial),
+    MoveUp,
+    MoveDown,
+    Remove,
+    Insert(MpsMaterial),
 }
 
 #[derive(Event, Copy, Clone, Debug)]
@@ -49,7 +61,7 @@ impl EditObject {
     }
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq, AsRefStr)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, AsRefStr, Display)]
 pub enum Direction {
     West,
     East,

@@ -1148,8 +1148,7 @@ checksum = "7ef8e4b7e61dfe7719bb03c884dc270cd46a82efb40f93e9933b990c5c190c59"
 [[package]]
 name = "bevy_mod_imgui"
 version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e63c92c38e3e514d1110e98f7cf6ff45e73ebc6595154b9c74805a2c76e42c08"
+source = "git+https://github.com/Gaming32/bevy_mod_imgui#9f5d53b18bf03bc7811e7a7c57b41c2689efc447"
 dependencies = [
  "bevy",
  "bytemuck",

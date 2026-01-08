@@ -1,4 +1,4 @@
-use crate::sync::Direction;
+use crate::sync::{Direction, MaterialLocation};
 use crate::tile_range::TileRange;
 use crate::utils::grid_as_vec_vec;
 use enum_map::{Enum, EnumMap};
@@ -224,12 +224,12 @@ pub struct TileData {
     #[serde(flatten)]
     pub height: TileHeight,
     pub connections: ConnectionMap,
-    pub material: MpsMaterial,
+    #[serde(flatten)]
+    pub materials: MaterialMap,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub popup: Option<PopupType>,
     #[serde(default)]
     pub walk_over: bool,
-    pub wall_material: WallMaterialMap,
     pub silver_star_spawnable: bool,
 }
 
@@ -444,6 +444,33 @@ pub enum ConnectionCondition {
     Lock,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MaterialMap {
+    pub material: MpsMaterial,
+    pub wall_material: WallMaterialMap,
+}
+
+impl Index<MaterialLocation> for MaterialMap {
+    type Output = MpsMaterial;
+
+    fn index(&self, index: MaterialLocation) -> &Self::Output {
+        match index {
+            None => &self.material,
+            Some((side, index)) => &self.wall_material[side][index]
+        }
+    }
+}
+
+impl IndexMut<MaterialLocation> for MaterialMap {
+    fn index_mut(&mut self, index: MaterialLocation) -> &mut Self::Output {
+        match index {
+            None => &mut self.material,
+            Some((side, index)) => &mut self.wall_material[side][index]
+        }
+    }
+}
+
 #[serde_as]
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct WallMaterialMap {
@@ -475,6 +502,30 @@ impl Default for WallMaterialMap {
     }
 }
 
+impl Index<Direction> for WallMaterialMap {
+    type Output = Vec<MpsMaterial>;
+
+    fn index(&self, index: Direction) -> &Self::Output {
+        match index {
+            Direction::West => &self.west,
+            Direction::East => &self.east,
+            Direction::North => &self.north,
+            Direction::South => &self.south,
+        }
+    }
+}
+
+impl IndexMut<Direction> for WallMaterialMap {
+    fn index_mut(&mut self, index: Direction) -> &mut Self::Output {
+        match index {
+            Direction::West => &mut self.west,
+            Direction::East => &mut self.east,
+            Direction::North => &mut self.north,
+            Direction::South => &mut self.south,
+        }
+    }
+}
+
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MpsMaterial(AtlasCoordValue);
 
@@ -484,9 +535,19 @@ const ATLAS_SIZE: (AtlasCoordValue, AtlasCoordValue) = (16, 16);
 impl MpsMaterial {
     pub const U_INCREMENT: f32 = 1.0 / ATLAS_SIZE.0 as f32;
     pub const V_INCREMENT: f32 = 1.0 / ATLAS_SIZE.1 as f32;
+    pub const TEXTURES_PER_ROW: usize = ATLAS_SIZE.0 as usize;
+    pub const TEXTURES_COUNT: usize = ATLAS_SIZE.0 as usize * ATLAS_SIZE.1 as usize;
+
+    pub const fn from_index(index: usize) -> Option<Self> {
+        if index < Self::TEXTURES_COUNT {
+            Some(Self(index as AtlasCoordValue))
+        } else {
+            None
+        }
+    }
 
     /// Return value: `(u1, v1, u2, v2)`
-    pub fn to_uv_coords(self) -> (f32, f32, f32, f32) {
+    pub const fn to_uv_coords(self) -> (f32, f32, f32, f32) {
         let u = (self.0 % ATLAS_SIZE.0) as f32 / ATLAS_SIZE.0 as f32;
         let v = (ATLAS_SIZE.1 - 1 - self.0 / ATLAS_SIZE.0) as f32 / ATLAS_SIZE.1 as f32;
         (
@@ -497,7 +558,7 @@ impl MpsMaterial {
         )
     }
 
-    pub fn from_uv_coords(u: f32, v: f32) -> Self {
+    pub const fn from_uv_coords(u: f32, v: f32) -> Self {
         let x = (u * ATLAS_SIZE.0 as f32) as AtlasCoordValue;
         let y = ATLAS_SIZE.1 - 1 - (v * ATLAS_SIZE.1 as f32) as AtlasCoordValue;
         Self(y * ATLAS_SIZE.0 + x)
