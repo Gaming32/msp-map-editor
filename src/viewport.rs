@@ -8,6 +8,7 @@ use crate::{modifier_key, shortcut_pressed};
 use bevy::asset::io::embedded::GetAssetServer;
 use bevy::asset::{LoadState, RenderAssetUsages};
 use bevy::camera::NormalizedRenderTarget;
+use bevy::camera::visibility::NoFrustumCulling;
 use bevy::core_pipeline::Skybox;
 use bevy::input::ButtonState;
 use bevy::input::mouse::MouseWheel;
@@ -483,7 +484,8 @@ fn on_select_for_editing(
                     Visibility::default(),
                     children![(
                         TilesGizmoMesh(range),
-                        Transform::from_translation(-mesh_offset)
+                        Transform::from_translation(-mesh_offset),
+                        NoFrustumCulling,
                     )],
                 ));
             }
