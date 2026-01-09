@@ -1,10 +1,9 @@
 use crate::culling::CullIfInside;
-use bevy::asset::embedded_path;
 use bevy::asset::io::embedded::EmbeddedAssetRegistry;
 use bevy::light::{NotShadowCaster, NotShadowReceiver};
 use bevy::prelude::*;
 use std::f32::consts::PI;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 macro_rules! asset_path {
     ($path:literal) => {
@@ -19,35 +18,21 @@ impl Plugin for EmbeddedAssetsPlugin {
         let registry = app.world().resource::<EmbeddedAssetRegistry>();
 
         macro_rules! embedded_asset {
-            ($path:literal) => {{
-                let path = embedded_path!("src", $path);
-                registry.insert_asset(PathBuf::new(), &path, include_bytes!($path));
-                path
-            }};
-
-            ($path:literal with meta) => {{
-                let path = embedded_asset!($path);
+            ($path:literal, $real_path:literal) => {
+                registry.insert_asset(PathBuf::new(), Path::new($path), include_bytes!($real_path))
+            };
+        }
+        macro_rules! embedded_meta {
+            ($path:literal, $real_path:literal) => {
                 registry.insert_meta(
                     &PathBuf::new(),
-                    &path,
-                    include_bytes!(concat!($path, ".meta")),
-                );
-                path
-            }};
+                    Path::new($path),
+                    include_bytes!($real_path),
+                )
+            };
         }
 
-        embedded_asset!("assets/icons/icons.png");
-        embedded_asset!("assets/icons/unset_texture.png");
-
-        embedded_asset!("assets/objects/camera.glb");
-        embedded_asset!("assets/objects/gold_pipe.glb");
-        embedded_asset!("assets/objects/key_gate.glb");
-        embedded_asset!("assets/objects/star.glb");
-
-        embedded_asset!("assets/floor.png" with meta);
-        embedded_asset!("assets/missing_atlas.png" with meta);
-        embedded_asset!("assets/missing_skybox.ktx2");
-        embedded_asset!("assets/player.png" with meta);
+        include!(concat!(env!("OUT_DIR"), "/asset_index.rs"));
     }
 }
 

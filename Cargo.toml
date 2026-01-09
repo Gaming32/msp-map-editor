@@ -27,6 +27,9 @@ serde_with = "3.16.1"
 strum = { version = "0.27.2", features = ["derive"] }
 transform-gizmo-bevy = { git = "https://github.com/pindash-io/transform-gizmo", branch = "bevy-0.17", version = "0.7.0" }
 
+[build-dependencies]
+walkdir = "2.5.0"
+
 [profile.dev.package."*"]
 opt-level = 3
 
