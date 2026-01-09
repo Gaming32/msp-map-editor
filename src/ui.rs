@@ -5,10 +5,10 @@ use crate::load_file::{
     save_file_as,
 };
 use crate::schema::{
-    Connection, ConnectionCondition, CubeMap, MpsMaterial, PopupType, ShopNumber, TileHeight,
-    TileRampDirection,
+    Connection, ConnectionCondition, CubeMap, MapFile, MpsMaterial, MpsTransform, PopupType,
+    ShopNumber, TileHeight, TileRampDirection,
 };
-use crate::sync::{Direction, MaterialEdit, MaterialLocation, PresetView};
+use crate::sync::{CameraId, Direction, ListEdit, MaterialLocation, PresetView};
 use crate::sync::{EditObject, MapEdit, MapEdited, SelectForEditing};
 use crate::tile_range::TileRange;
 use crate::utils::TriStateCheckbox;
@@ -163,6 +163,8 @@ fn on_map_edited(on: On<MapEdited>, mut state: ResMut<UiState>) {
         }
         MapEdit::ExpandMap(_, _)
         | MapEdit::ShrinkMap(_)
+        | MapEdit::ChangeCameraPos(_, _)
+        | MapEdit::ChangeCameraRot(_, _)
         | MapEdit::AdjustHeight(_, _)
         | MapEdit::ChangeHeight(_, _)
         | MapEdit::ChangeConnection(_, _, _)
@@ -427,6 +429,10 @@ fn draw_imgui(
 
         ui.spacing();
 
+        const SUPPORTED_IMAGE_EXTENSIONS: &[&str] = &[
+            "bmp", "gif", "hdr", "ico", "jpg", "jpeg", "ktx2", "png", "tif", "tiff", "webp",
+        ];
+
         if let Some(atlas) = state.atlas_texture
             && let Some(_token) = ui
                 .tree_node_config("Atlas")
@@ -447,12 +453,6 @@ fn draw_imgui(
                     .pick_file_path(SettingImagePick::Atlas);
             }
         }
-
-        ui.spacing();
-
-        const SUPPORTED_IMAGE_EXTENSIONS: &[&str] = &[
-            "bmp", "gif", "hdr", "ico", "jpg", "jpeg", "ktx2", "png", "tif", "tiff", "webp",
-        ];
 
         if let Some(skybox) = state.skybox_textures
             && let Some(icon_atlas) = state.icon_atlas_texture
@@ -485,6 +485,50 @@ fn draw_imgui(
                 ui.same_line();
                 ui.text(label);
             }
+        }
+
+        if let Some(_token) = ui
+            .tree_node_config("Cameras")
+            .framed(true)
+            .tree_push_on_open(false)
+            .push()
+        {
+            let mut tutorial_camera = |label, id, default: fn(&MapFile) -> MpsTransform| {
+                if let Some(_token) = ui.tree_node(label) {
+                    let default = default(&file.file);
+                    if ui.button("Select") {
+                        commands.trigger(SelectForEditing {
+                            object: EditObject::Camera(id),
+                            exclusive: true,
+                        });
+                    }
+                    ui.same_line();
+                    if ui.button("Preview") {
+                        commands.trigger(PresetView::Transform(default));
+                    }
+                    let mut pos = default.pos.as_array();
+                    if ui
+                        .input_scalar_n(format!("##{label} pos"), &mut pos)
+                        .display_format("%.2f")
+                        .build()
+                    {
+                        file.edit_map(&mut commands, MapEdit::ChangeCameraPos(id, pos.into()));
+                    }
+                    let mut rot = default.rot.as_array().map(f64::to_degrees);
+                    if ui
+                        .input_scalar_n(format!("##{label} rot"), &mut rot)
+                        .display_format("%.1f")
+                        .build()
+                    {
+                        file.edit_map(
+                            &mut commands,
+                            MapEdit::ChangeCameraRot(id, rot.map(f64::to_radians).into()),
+                        );
+                    }
+                }
+            };
+            tutorial_camera("Star tutorial", CameraId::StarTutorial, |f| f.tutorial_star);
+            tutorial_camera("Shop tutorial", CameraId::ShopTutorial, |f| f.tutorial_shop);
         }
     });
 
@@ -699,7 +743,7 @@ fn draw_imgui(
                             edit = Some(MapEdit::ChangeMaterial(
                                 range,
                                 location,
-                                vec![MaterialEdit::MoveUp; range.area()],
+                                vec![ListEdit::MoveUp; range.area()],
                             ));
                         }
                     });
@@ -719,7 +763,7 @@ fn draw_imgui(
                             edit = Some(MapEdit::ChangeMaterial(
                                 range,
                                 location,
-                                vec![MaterialEdit::MoveDown; range.area()],
+                                vec![ListEdit::MoveDown; range.area()],
                             ));
                         }
                     });
@@ -735,7 +779,7 @@ fn draw_imgui(
                             edit = Some(MapEdit::ChangeMaterial(
                                 range,
                                 location,
-                                vec![MaterialEdit::Remove; range.area()],
+                                vec![ListEdit::Remove; range.area()],
                             ));
                         }
                     });
@@ -744,7 +788,7 @@ fn draw_imgui(
                     edit = Some(MapEdit::ChangeMaterial(
                         range,
                         Some((*side, min_segments)),
-                        vec![MaterialEdit::Insert(MpsMaterial::default()); range.area()],
+                        vec![ListEdit::Insert(MpsMaterial::default()); range.area()],
                     ));
                 }
             }
@@ -754,7 +798,7 @@ fn draw_imgui(
                     _ => unreachable!(),
                 };
                 file.edit_map(&mut commands, edit);
-                if matches!(material, MaterialEdit::Insert(_)) {
+                if matches!(material, ListEdit::Insert(_)) {
                     state.material_target = Some((range, location));
                     open_material_picker = true;
                 }
@@ -893,7 +937,7 @@ fn draw_imgui(
                         MapEdit::ChangeMaterial(
                             target_range,
                             target_location,
-                            vec![MaterialEdit::Set(material); target_range.area()],
+                            vec![ListEdit::Set(material); target_range.area()],
                         ),
                     );
                     ui.close_current_popup();

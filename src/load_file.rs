@@ -1,6 +1,6 @@
 use crate::TITLE;
 use crate::schema::{MapFile, MpsVec2, Textures, TileData, TileHeight};
-use crate::sync::{Direction, MapEdit, MapEdited, MaterialEdit};
+use crate::sync::{CameraId, Direction, ListEdit, MapEdit, MapEdited};
 use crate::tile_range::TileRange;
 use crate::ui::UiState;
 use bevy::image::{ImageFormatSetting, ImageLoaderSettings, ImageSampler};
@@ -93,6 +93,20 @@ impl LoadedFile {
                         .collect(),
                 }),
             ),
+            MapEdit::ChangeCameraPos(camera, _) => MapEdit::ChangeCameraPos(
+                *camera,
+                match camera {
+                    CameraId::StarTutorial => self.file.tutorial_star.pos,
+                    CameraId::ShopTutorial => self.file.tutorial_shop.pos,
+                },
+            ),
+            MapEdit::ChangeCameraRot(camera, _) => MapEdit::ChangeCameraRot(
+                *camera,
+                match camera {
+                    CameraId::StarTutorial => self.file.tutorial_star.rot,
+                    CameraId::ShopTutorial => self.file.tutorial_shop.rot,
+                },
+            ),
             MapEdit::AdjustHeight(range, change) => MapEdit::AdjustHeight(*range, -change),
             MapEdit::ChangeHeight(range, _) => MapEdit::ChangeHeight(
                 *range,
@@ -113,15 +127,11 @@ impl LoadedFile {
                     .into_iter()
                     .zip(edits.iter())
                     .map(|(pos, &edit)| match edit {
-                        MaterialEdit::Set(_) => {
-                            MaterialEdit::Set(self.file[pos].materials[*location])
-                        }
-                        MaterialEdit::MoveUp => MaterialEdit::MoveUp,
-                        MaterialEdit::MoveDown => MaterialEdit::MoveDown,
-                        MaterialEdit::Remove => {
-                            MaterialEdit::Insert(self.file[pos].materials[*location])
-                        }
-                        MaterialEdit::Insert(_) => MaterialEdit::Remove,
+                        ListEdit::Set(_) => ListEdit::Set(self.file[pos].materials[*location]),
+                        ListEdit::MoveUp => ListEdit::MoveUp,
+                        ListEdit::MoveDown => ListEdit::MoveDown,
+                        ListEdit::Remove => ListEdit::Insert(self.file[pos].materials[*location]),
+                        ListEdit::Insert(_) => ListEdit::Remove,
                     })
                     .collect(),
             ),
@@ -152,7 +162,7 @@ impl LoadedFile {
             let is_equal_reverse = match &reversed {
                 MapEdit::ChangeMaterial(_, _, edits) => edits
                     .iter()
-                    .all(|e| matches!(e, MaterialEdit::MoveUp | MaterialEdit::MoveDown)),
+                    .all(|e| matches!(e, ListEdit::MoveUp | ListEdit::MoveDown)),
                 _ => false,
             };
             if !is_equal_reverse {
@@ -245,6 +255,14 @@ impl LoadedFile {
                     self.file.data.remove_row(self.file.data.rows() - 1);
                 }
             },
+            MapEdit::ChangeCameraPos(camera, pos) => match camera {
+                CameraId::StarTutorial => self.file.tutorial_star.pos = *pos,
+                CameraId::ShopTutorial => self.file.tutorial_shop.pos = *pos,
+            },
+            MapEdit::ChangeCameraRot(camera, rot) => match camera {
+                CameraId::StarTutorial => self.file.tutorial_star.rot = *rot,
+                CameraId::ShopTutorial => self.file.tutorial_shop.rot = *rot,
+            },
             MapEdit::AdjustHeight(range, change) => self.file.adjust_height(*range, *change),
             MapEdit::ChangeHeight(range, new) => {
                 check_edit_range!(range, new, ChangeHeight);
@@ -262,20 +280,20 @@ impl LoadedFile {
                 check_edit_range!(range, new, ChangeMaterial);
                 for (pos, &edit) in range.into_iter().zip(new) {
                     match edit {
-                        MaterialEdit::Set(material) => {
+                        ListEdit::Set(material) => {
                             self.file[pos].materials[*location] = material;
                         }
                         _ => {
                             let (side, index) = location.unwrap();
                             let vec = &mut self.file[pos].materials.wall_material[side];
                             match edit {
-                                MaterialEdit::Set(_) => unreachable!(),
-                                MaterialEdit::MoveUp => vec.swap(index - 1, index),
-                                MaterialEdit::MoveDown => vec.swap(index, index + 1),
-                                MaterialEdit::Remove => {
+                                ListEdit::Set(_) => unreachable!(),
+                                ListEdit::MoveUp => vec.swap(index - 1, index),
+                                ListEdit::MoveDown => vec.swap(index, index + 1),
+                                ListEdit::Remove => {
                                     vec.remove(index);
                                 }
-                                MaterialEdit::Insert(material) => vec.insert(index, material),
+                                ListEdit::Insert(material) => vec.insert(index, material),
                             }
                         }
                     }

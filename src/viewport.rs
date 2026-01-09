@@ -1,8 +1,11 @@
-use crate::assets::{PlayerMarker, missing_atlas, missing_skybox, player};
+use crate::assets::{PlayerMarker, camera, missing_atlas, missing_skybox, player};
+use crate::culling::CullingPlugin;
 use crate::load_file::{FileLoaded, LoadedFile};
 use crate::mesh::{MapMeshMarker, mesh_map, mesh_top_highlights};
 use crate::schema::MpsVec2;
-use crate::sync::{Direction, EditObject, MapEdit, MapEdited, PresetView, SelectForEditing};
+use crate::sync::{
+    CameraId, Direction, EditObject, MapEdit, MapEdited, PresetView, SelectForEditing,
+};
 use crate::tile_range::TileRange;
 use crate::{modifier_key, shortcut_pressed};
 use bevy::asset::io::embedded::GetAssetServer;
@@ -75,7 +78,12 @@ impl Plugin for ViewportPlugin {
             atlas: ViewportTextureSet::new(missing_atlas),
             atlas_material,
         })
-        .add_plugins((MapCameraPlugin, MeshPickingPlugin, TransformGizmoPlugin))
+        .add_plugins((
+            MapCameraPlugin,
+            MeshPickingPlugin,
+            TransformGizmoPlugin,
+            CullingPlugin,
+        ))
         .add_systems(
             First,
             custom_mouse_pick_events.in_set(PickingSystems::Input),
@@ -158,6 +166,10 @@ fn setup_viewport(
             target: viewport_target.texture.clone().into(),
             ..Default::default()
         },
+        Projection::Perspective(PerspectiveProjection {
+            fov: 60_f32.to_radians(),
+            ..Default::default()
+        }),
         Skybox {
             image: textures.skybox.current.clone(),
             brightness: 400.0, // Nits
@@ -165,7 +177,6 @@ fn setup_viewport(
         },
         MapCamera,
         GizmoCamera,
-        LookTransform::default(),
     ));
 
     commands.spawn((
@@ -203,13 +214,13 @@ fn on_file_load(
     _: On<FileLoaded>,
     mut commands: Commands,
     objects: Query<Entity, Or<(With<ViewportObject>, With<MapMeshMarker>)>>,
-    mut camera: Query<(&mut LookTransform, &mut Skybox), With<Camera>>,
+    camera_query: Query<(&mut LookTransform, &mut Skybox), With<Camera>>,
     mut state: ResMut<ViewportState>,
     assets: Res<AssetServer>,
     file: Res<LoadedFile>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    for existing in objects.iter() {
+    for existing in objects {
         commands.entity(existing).despawn();
     }
 
@@ -231,9 +242,24 @@ fn on_file_load(
             old_rot: None,
         },
     ));
-    for (mut camera, mut skybox) in camera.iter_mut() {
+    for (mut camera, mut skybox) in camera_query {
         *camera = get_player_cam_transform(player_pos);
         skybox.image = state.skybox.current.clone();
+    }
+
+    for (transform, id) in [
+        (file.file.tutorial_star, CameraId::StarTutorial),
+        (file.file.tutorial_shop, CameraId::ShopTutorial),
+    ] {
+        commands.spawn((
+            camera(&assets, transform.pos.into(), transform.rot.into()),
+            ViewportObject {
+                editor: EditObject::Camera(id),
+                old_pos: transform.pos.into(),
+                old_rot: Some(transform.rot.into()),
+            },
+            id,
+        ));
     }
 
     commands.trigger(RemeshMap);
@@ -244,24 +270,30 @@ fn on_map_edited(
     on: On<MapEdited>,
     mut commands: Commands,
     file: Res<LoadedFile>,
-    mut player: Query<
+    player: Query<
         (&mut Transform, &mut ViewportObject),
         (
             With<PlayerMarker>,
             Without<BoundsGizmo>,
             Without<TilesGizmo>,
             Without<TilesGizmoMesh>,
+            Without<CameraId>,
         ),
     >,
-    mut bounds_markers: Query<
+    bounds_markers: Query<
         (&mut Transform, &mut ViewportObject, &BoundsGizmo),
-        (Without<TilesGizmo>, Without<TilesGizmoMesh>),
+        (
+            Without<TilesGizmo>,
+            Without<TilesGizmoMesh>,
+            Without<CameraId>,
+        ),
     >,
     mut tiles_gizmo: Query<
         (&mut Transform, &mut ViewportObject, &TilesGizmo),
-        Without<TilesGizmoMesh>,
+        (Without<TilesGizmoMesh>, Without<CameraId>),
     >,
-    mut tiles_gizmo_child: Query<&mut Transform, With<TilesGizmoMesh>>,
+    mut tiles_gizmo_child: Query<&mut Transform, (With<TilesGizmoMesh>, Without<CameraId>)>,
+    camera_gizmo: Query<(&mut Transform, &mut ViewportObject), With<CameraId>>,
     mut textures: ResMut<ViewportState>,
 ) {
     let mut change_player_pos = false;
@@ -280,9 +312,25 @@ fn on_map_edited(
         MapEdit::ExpandMap(_, _) | MapEdit::ShrinkMap(_) => {
             commands.trigger(RemeshMap);
             change_player_pos = true;
-            for (mut transform, mut object, bounds) in bounds_markers.iter_mut() {
+            for (mut transform, mut object, bounds) in bounds_markers {
                 transform.translation = get_bounds_gizmo_location(&file, bounds.0);
                 object.old_pos = transform.translation;
+            }
+        }
+        MapEdit::ChangeCameraPos(camera, pos) => {
+            for (mut transform, mut object) in camera_gizmo {
+                if object.editor == EditObject::Camera(*camera) {
+                    transform.translation = (*pos).into();
+                    object.old_pos = transform.translation;
+                }
+            }
+        }
+        MapEdit::ChangeCameraRot(camera, rot) => {
+            for (mut transform, mut object) in camera_gizmo {
+                if object.editor == EditObject::Camera(*camera) {
+                    transform.rotation = (*rot).into();
+                    object.old_rot = Some(transform.rotation);
+                }
             }
         }
         MapEdit::AdjustHeight(_, _) | MapEdit::ChangeHeight(_, _) => {
@@ -301,7 +349,7 @@ fn on_map_edited(
     }
 
     if change_player_pos {
-        for (mut player, mut viewport_obj) in player.iter_mut() {
+        for (mut player, mut viewport_obj) in player {
             player.translation = get_player_pos(&file, file.file.starting_tile);
             viewport_obj.old_pos = player.translation;
         }
@@ -346,7 +394,7 @@ fn on_remesh_map(
     }
     debug!("Meshed in {:?}", start.elapsed());
 
-    for old in old.iter() {
+    for old in old {
         commands.entity(old).despawn();
     }
 }
@@ -364,13 +412,14 @@ fn on_select_for_editing(
         Without<TilesGizmoMesh>,
     >,
     mut tiles_gizmo_children: Query<(&mut Transform, &mut TilesGizmoMesh)>,
+    cameras: Query<(Entity, &CameraId)>,
     mut file: ResMut<LoadedFile>,
 ) {
     if on.exclusive {
-        for gizmo in current_gizmos.iter() {
+        for gizmo in current_gizmos {
             commands.entity(gizmo).remove::<GizmoTarget>();
         }
-        for gizmo in temporary_gizmos.iter() {
+        for gizmo in temporary_gizmos {
             commands.entity(gizmo).despawn();
         }
         if file.selected_range.is_some() {
@@ -383,6 +432,7 @@ fn on_select_for_editing(
             *gizmo_options = GizmoOptions {
                 gizmo_modes: GizmoMode::TranslateX | GizmoMode::TranslateZ | GizmoMode::TranslateXZ,
                 snap_distance: 1.0,
+                snapping: true,
                 hotkeys: Some(GizmoHotkeys {
                     enable_snapping: None,
                     enable_accurate_mode: None,
@@ -390,7 +440,7 @@ fn on_select_for_editing(
                 }),
                 ..*gizmo_options
             };
-            for player in player.iter() {
+            for player in player {
                 commands.entity(player).insert(GizmoTarget::default());
             }
         }
@@ -399,6 +449,7 @@ fn on_select_for_editing(
                 // One of these modes won't work, but since GizmoOptions are applied globally and not per-gizmo, this is all we can do.
                 gizmo_modes: GizmoMode::TranslateX | GizmoMode::TranslateZ,
                 snap_distance: 1.0,
+                snapping: true,
                 hotkeys: Some(GizmoHotkeys {
                     enable_snapping: None,
                     enable_accurate_mode: None,
@@ -419,10 +470,25 @@ fn on_select_for_editing(
                 GizmoTarget::default(),
             ));
         }
+        EditObject::Camera(target) => {
+            *gizmo_options = GizmoOptions {
+                gizmo_modes: GizmoMode::all_translate() | GizmoMode::all_rotate(),
+                snap_distance: 0.5,
+                snapping: false,
+                hotkeys: Some(GizmoHotkeys::default()),
+                ..*gizmo_options
+            };
+            for (camera, &id) in cameras {
+                if id == target {
+                    commands.entity(camera).insert(GizmoTarget::default());
+                }
+            }
+        }
         EditObject::Tile(new_pos) => {
             *gizmo_options = GizmoOptions {
                 gizmo_modes: GizmoMode::TranslateY.into(),
                 snap_distance: 0.5,
+                snapping: true,
                 hotkeys: Some(GizmoHotkeys {
                     enable_snapping: None,
                     ..Default::default()
@@ -560,7 +626,7 @@ fn on_pointer_click(
 #[allow(clippy::too_many_arguments)]
 fn on_preset_view(
     on: On<PresetView>,
-    mut camera: Query<(Entity, &LookTransform, &Projection), With<Camera>>,
+    camera: Query<(Entity, &LookTransform, &Projection), With<Camera>>,
     selection: Query<Entity, With<GizmoTarget>>,
     mut commands: Commands,
     world: &World,
@@ -568,7 +634,7 @@ fn on_preset_view(
     file: Res<LoadedFile>,
     meshes: Res<Assets<Mesh>>,
 ) {
-    for (camera, transform, projection) in camera.iter_mut() {
+    for (camera, transform, projection) in camera {
         let new_transform = match on.event() {
             PresetView::Player => {
                 let Ok(player_pos) = player_pos.single_inner() else {
@@ -655,7 +721,24 @@ fn on_preset_view(
                     up: Vec3::NEG_Z,
                 }
             }
+            PresetView::Transform(transform) => {
+                let transform = Transform::from(*transform);
+                let forwards = transform.forward().as_vec3();
+                let new_transform = LookTransform {
+                    eye: transform.translation,
+                    target: transform.translation + forwards,
+                    up: transform.up().as_vec3(),
+                };
+                info!("New transform (simple): {new_transform:?}");
+                info!("Forwards: {forwards:?}");
+                if forwards.y < -0.001 {
+                    compute_grounded_look_transform(new_transform)
+                } else {
+                    new_transform
+                }
+            }
         };
+        info!("New transform: {new_transform:?}");
         commands.entity(camera).insert(transform.ease_to(
             new_transform,
             EaseFunction::QuinticInOut,
@@ -721,9 +804,9 @@ fn keyboard_handler(keys: Res<ButtonInput<KeyCode>>, mut commands: Commands) {
     }
 }
 
-fn ensure_camera_up(mut camera: Query<(&mut LookTransform, &Transform), With<Camera>>) {
-    for (mut look, real) in camera.iter_mut() {
-        if !real.forward().abs_diff_eq(Vec3::NEG_Y, 0.001) && look.up != Vec3::Y {
+fn ensure_camera_up(camera: Query<(&mut LookTransform, &Transform), With<Camera>>) {
+    for (mut look, real) in camera {
+        if !real.up().abs_diff_eq(look.up, 0.001) && look.up != Vec3::Y {
             look.up = Vec3::Y;
         }
     }
@@ -739,7 +822,7 @@ fn update_gizmos(mut options: ResMut<GizmoOptions>, viewport: Res<ViewportTarget
 fn sync_from_gizmos(
     mut commands: Commands,
     mut file: ResMut<LoadedFile>,
-    mut gizmos: Query<
+    gizmos: Query<
         (
             &mut Transform,
             &mut ViewportObject,
@@ -750,7 +833,7 @@ fn sync_from_gizmos(
     >,
     mut selected_mesh_gizmo: Query<&mut Transform, With<TilesGizmoMesh>>,
 ) {
-    for (mut transform, mut object, gizmo, tiles) in gizmos.iter_mut() {
+    for (mut transform, mut object, gizmo, tiles) in gizmos {
         match object.editor {
             EditObject::StartingPosition => {
                 let pos = transform.translation;
@@ -815,6 +898,20 @@ fn sync_from_gizmos(
                     }
                 }
             }
+            EditObject::Camera(camera) => {
+                if !gizmo.is_active() {
+                    let pos = transform.translation;
+                    let rot = transform.rotation;
+                    if pos != object.old_pos {
+                        file.edit_map(&mut commands, MapEdit::ChangeCameraPos(camera, pos.into()));
+                        object.old_pos = pos;
+                    }
+                    if Some(rot) != object.old_rot {
+                        file.edit_map(&mut commands, MapEdit::ChangeCameraRot(camera, rot.into()));
+                        object.old_rot = Some(rot);
+                    }
+                }
+            }
             EditObject::Tile(_) => {
                 let range = tiles.unwrap().0;
                 if gizmo.is_active() {
@@ -860,7 +957,7 @@ fn update_lights(
 
 fn update_textures(
     mut textures: ResMut<ViewportState>,
-    mut skybox: Query<&mut Skybox>,
+    skybox: Query<&mut Skybox>,
     file: Res<LoadedFile>,
     assets: Res<AssetServer>,
     images: Res<Assets<Image>>,
@@ -940,7 +1037,7 @@ fn update_textures(
             textures.skybox.current = textures.skybox.missing.clone();
         }
 
-        for mut skybox in skybox.iter_mut() {
+        for mut skybox in skybox {
             skybox.image = textures.skybox.current.clone();
         }
 

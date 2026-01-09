@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod assets;
+mod culling;
 mod docking;
 mod load_file;
 mod mesh;

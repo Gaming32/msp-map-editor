@@ -1,3 +1,4 @@
+use crate::culling::CullIfInside;
 use bevy::asset::embedded_path;
 use bevy::asset::io::embedded::EmbeddedAssetRegistry;
 use bevy::light::{NotShadowCaster, NotShadowReceiver};
@@ -38,6 +39,7 @@ impl Plugin for EmbeddedAssetsPlugin {
         embedded_asset!("assets/icons/icons.png");
         embedded_asset!("assets/icons/unset_texture.png");
 
+        embedded_asset!("assets/objects/camera.glb");
         embedded_asset!("assets/objects/gold_pipe.glb");
         embedded_asset!("assets/objects/key_gate.glb");
         embedded_asset!("assets/objects/star.glb");
@@ -51,6 +53,26 @@ impl Plugin for EmbeddedAssetsPlugin {
 
 #[derive(Component)]
 pub struct PlayerMarker;
+
+pub fn icons_atlas(assets: &AssetServer) -> Handle<Image> {
+    assets.load(asset_path!("icons/icons.png"))
+}
+
+pub fn unset_texture_icon(assets: &AssetServer) -> Handle<Image> {
+    assets.load(asset_path!("icons/unset_texture.png"))
+}
+
+pub fn camera(assets: &AssetServer, position: Vec3, rotation: Quat) -> impl Bundle {
+    (
+        SceneRoot(assets.load(asset_path!("objects/camera.glb#Scene0"))),
+        NotShadowCaster,
+        NotShadowReceiver,
+        CullIfInside(0.7..1.0),
+        Transform::from_translation(position)
+            .with_scale(Vec3::splat(0.3))
+            .with_rotation(rotation),
+    )
+}
 
 pub fn gold_pipe(assets: &AssetServer, position: Vec3) -> impl Bundle {
     (
@@ -71,18 +93,23 @@ pub fn key_gate(assets: &AssetServer, position: Vec3, rotation: f32) -> (SceneRo
     )
 }
 
-pub fn silver_star(assets: &AssetServer, position: Vec3) -> impl Bundle {
-    (
-        SceneRoot(assets.load(asset_path!("objects/star.glb#Scene0"))),
-        Transform::from_translation(position).with_scale(Vec3::splat(0.1)),
-    )
-}
-
 pub fn star(assets: &AssetServer, position: Vec3) -> impl Bundle {
     (
         SceneRoot(assets.load(asset_path!("objects/star.glb#Scene0"))),
         Transform::from_translation(position).with_scale(Vec3::splat(0.15)),
     )
+}
+
+pub fn floor(assets: &AssetServer) -> Handle<Image> {
+    assets.load(asset_path!("floor.png"))
+}
+
+pub fn missing_atlas(assets: &AssetServer) -> Handle<Image> {
+    assets.load(asset_path!("missing_atlas.png"))
+}
+
+pub fn missing_skybox(assets: &AssetServer) -> Handle<Image> {
+    assets.load(asset_path!("missing_skybox.ktx2"))
 }
 
 pub fn player(assets: &AssetServer, position: Vec3) -> impl Bundle {
@@ -100,41 +127,4 @@ pub fn player(assets: &AssetServer, position: Vec3) -> impl Bundle {
         NotShadowReceiver,
         Transform::from_translation(position),
     )
-}
-
-pub fn tutorial_obj(assets: &AssetServer, obj: impl Bundle) -> impl Bundle {
-    (
-        obj,
-        children![(
-            Mesh3d(assets.add(Sphere::new(2.0).into())),
-            MeshMaterial3d(assets.add(StandardMaterial {
-                base_color: Srgba::rgba_u8(161, 61, 204, 32).into(),
-                alpha_mode: AlphaMode::Add,
-                unlit: true,
-                ..Default::default()
-            })),
-            NotShadowCaster,
-            NotShadowReceiver,
-        )],
-    )
-}
-
-pub fn icons_atlas(assets: &AssetServer) -> Handle<Image> {
-    assets.load(asset_path!("icons/icons.png"))
-}
-
-pub fn unset_texture_icon(assets: &AssetServer) -> Handle<Image> {
-    assets.load(asset_path!("icons/unset_texture.png"))
-}
-
-pub fn floor(assets: &AssetServer) -> Handle<Image> {
-    assets.load(asset_path!("floor.png"))
-}
-
-pub fn missing_skybox(assets: &AssetServer) -> Handle<Image> {
-    assets.load(asset_path!("missing_skybox.ktx2"))
-}
-
-pub fn missing_atlas(assets: &AssetServer) -> Handle<Image> {
-    assets.load(asset_path!("missing_atlas.png"))
 }

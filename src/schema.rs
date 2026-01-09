@@ -1,6 +1,8 @@
 use crate::sync::{Direction, MaterialLocation};
 use crate::tile_range::TileRange;
 use crate::utils::grid_as_vec_vec;
+use bevy::prelude::{EulerRot, Transform};
+use bevy_math::{Quat, Vec3};
 use enum_map::{Enum, EnumMap};
 use grid::{Grid, grid};
 use monostate::{MustBe, MustBeBool};
@@ -115,7 +117,7 @@ impl MpsVec2 {
         }
     }
 
-    pub fn as_array(self) -> [i32; 2] {
+    pub const fn as_array(self) -> [i32; 2] {
         [self.x, self.y]
     }
 }
@@ -138,29 +140,39 @@ impl Sub for MpsVec2 {
     }
 }
 
-impl From<MpsVec2> for [i32; 2] {
-    fn from(val: MpsVec2) -> Self {
-        val.as_array()
-    }
-}
-
 impl From<[i32; 2]> for MpsVec2 {
     fn from(value: [i32; 2]) -> Self {
         Self::new(value[0], value[1])
     }
 }
 
-#[derive(Copy, Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct MpsTransform {
     pub pos: MpsVec3,
     pub rot: MpsVec3,
 }
 
-#[derive(Copy, Clone, Debug, Default, Serialize, Deserialize)]
+impl From<MpsTransform> for Transform {
+    fn from(value: MpsTransform) -> Self {
+        Self::from_translation(value.pos.into()).with_rotation(value.rot.into())
+    }
+}
+
+#[derive(Copy, Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct MpsVec3 {
     pub x: f64,
     pub y: f64,
     pub z: f64,
+}
+
+impl MpsVec3 {
+    pub const fn new(x: f64, y: f64, z: f64) -> Self {
+        Self { x, y, z }
+    }
+
+    pub const fn as_array(self) -> [f64; 3] {
+        [self.x, self.y, self.z]
+    }
 }
 
 impl AddAssign for MpsVec3 {
@@ -178,6 +190,37 @@ impl From<MpsVec2> for MpsVec3 {
             y: 0.0,
             z: val.y as f64,
         }
+    }
+}
+
+impl From<[f64; 3]> for MpsVec3 {
+    fn from(value: [f64; 3]) -> Self {
+        Self::new(value[0], value[1], value[2])
+    }
+}
+
+impl From<MpsVec3> for Vec3 {
+    fn from(val: MpsVec3) -> Self {
+        Vec3::new(val.x as f32, val.y as f32, val.z as f32)
+    }
+}
+
+impl From<Vec3> for MpsVec3 {
+    fn from(value: Vec3) -> Self {
+        Self::new(value.x as f64, value.y as f64, value.z as f64)
+    }
+}
+
+impl From<MpsVec3> for Quat {
+    fn from(val: MpsVec3) -> Self {
+        Quat::from_euler(EulerRot::XYZ, val.x as f32, val.y as f32, val.z as f32)
+    }
+}
+
+impl From<Quat> for MpsVec3 {
+    fn from(value: Quat) -> Self {
+        let (x, y, z) = value.to_euler(EulerRot::XYZ);
+        Self::new(x as f64, y as f64, z as f64)
     }
 }
 
