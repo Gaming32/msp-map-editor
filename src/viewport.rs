@@ -34,6 +34,7 @@ use image::{DynamicImage, GenericImageView, RgbaImage};
 use std::f32::consts::PI;
 use std::time::{Duration, Instant};
 use transform_gizmo_bevy::GizmoHotkeys;
+use transform_gizmo_bevy::config::TransformPivotPoint;
 use transform_gizmo_bevy::prelude::*;
 
 #[derive(Resource)]
@@ -150,10 +151,10 @@ fn setup_viewport(
         ..Default::default()
     });
     commands.insert_resource(GizmoOptions {
+        pivot_point: TransformPivotPoint::IndividualOrigins,
+        snapping: true,
         snap_angle: PI / 4.0,
         snap_distance: 0.5,
-        group_targets: false,
-        snapping: true,
         hotkeys: Some(GizmoHotkeys {
             enable_snapping: None,
             ..Default::default()
@@ -426,38 +427,17 @@ fn on_select_for_editing(
         if file.selected_range.is_some() {
             file.selected_range = None;
         }
+        *gizmo_options = EditObject::None.update_gizmos(*gizmo_options);
     }
+    *gizmo_options = on.object.update_gizmos(*gizmo_options);
 
     match on.object {
         EditObject::StartingPosition => {
-            *gizmo_options = GizmoOptions {
-                gizmo_modes: GizmoMode::TranslateX | GizmoMode::TranslateZ | GizmoMode::TranslateXZ,
-                snap_distance: 1.0,
-                snapping: true,
-                hotkeys: Some(GizmoHotkeys {
-                    enable_snapping: None,
-                    enable_accurate_mode: None,
-                    ..Default::default()
-                }),
-                ..*gizmo_options
-            };
             for player in player {
                 commands.entity(player).insert(GizmoTarget::default());
             }
         }
         EditObject::MapSize(side) => {
-            *gizmo_options = GizmoOptions {
-                // One of these modes won't work, but since GizmoOptions are applied globally and not per-gizmo, this is all we can do.
-                gizmo_modes: GizmoMode::TranslateX | GizmoMode::TranslateZ,
-                snap_distance: 1.0,
-                snapping: true,
-                hotkeys: Some(GizmoHotkeys {
-                    enable_snapping: None,
-                    enable_accurate_mode: None,
-                    ..Default::default()
-                }),
-                ..*gizmo_options
-            };
             let spawn = get_bounds_gizmo_location(&file, side);
             commands.spawn((
                 ViewportObject {
@@ -472,13 +452,6 @@ fn on_select_for_editing(
             ));
         }
         EditObject::Camera(target) => {
-            *gizmo_options = GizmoOptions {
-                gizmo_modes: GizmoMode::all_translate() | GizmoMode::all_rotate() | GizmoMode::Arcball,
-                snap_distance: 0.5,
-                snapping: false,
-                hotkeys: Some(GizmoHotkeys::default()),
-                ..*gizmo_options
-            };
             for (camera, &id) in cameras {
                 if id == target {
                     commands.entity(camera).insert(GizmoTarget::default());
@@ -486,16 +459,6 @@ fn on_select_for_editing(
             }
         }
         EditObject::Tile(new_pos) => {
-            *gizmo_options = GizmoOptions {
-                gizmo_modes: GizmoMode::TranslateY.into(),
-                snap_distance: 0.5,
-                snapping: true,
-                hotkeys: Some(GizmoHotkeys {
-                    enable_snapping: None,
-                    ..Default::default()
-                }),
-                ..*gizmo_options
-            };
             if !on.exclusive
                 && let Ok((mut transform, mut tiles, mut object)) = tiles_gizmo.single_mut()
             {
@@ -599,6 +562,7 @@ fn get_bounds_gizmo_location(file: &LoadedFile, side: Direction) -> Vec3 {
 fn on_pointer_click(
     on: On<Pointer<Click>>,
     objects: Query<&ViewportObject>,
+    current_gizmos: Query<&ViewportObject, With<GizmoTarget>>,
     meshes: Query<(), With<MapMeshMarker>>,
     keys: Res<ButtonInput<KeyCode>>,
     mut commands: Commands,
@@ -620,7 +584,9 @@ fn on_pointer_click(
     };
     commands.trigger(SelectForEditing {
         object: editor,
-        exclusive: editor.exclusive_only() || !keys.any_pressed(modifier_key!(Shift)),
+        exclusive: editor.exclusive_only()
+            || !keys.any_pressed(modifier_key!(Shift))
+            || current_gizmos.iter().any(|x| !editor.same_type(x.editor)),
     });
 }
 
@@ -685,7 +651,10 @@ fn on_preset_view(
                 let min_fov = fov_x.min(fov_y);
                 let distance = radius / (min_fov / 2.0).sin();
 
-                let current_unit = (transform.target - transform.eye).normalize();
+                let mut current_unit = (transform.target - transform.eye).normalize();
+                if current_unit.y > 0.0 {
+                    current_unit.y = -current_unit.y;
+                }
                 compute_grounded_look_transform(LookTransform {
                     eye: Vec3::from(aabb.center) - current_unit * distance,
                     target: aabb.center.into(),
@@ -782,6 +751,10 @@ fn get_player_cam_transform(player_pos: Vec3) -> LookTransform {
 
 fn compute_grounded_look_transform(transform: LookTransform) -> LookTransform {
     let look_angle = (transform.eye - transform.target).normalize();
+    assert!(
+        look_angle.y > 0.0,
+        "compute_grounded_look_transform called while not looking down"
+    );
     LookTransform {
         eye: transform.eye,
         target: Vec3::new(

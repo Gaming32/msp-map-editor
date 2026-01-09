@@ -5,7 +5,9 @@ use crate::schema::{
 };
 use crate::tile_range::TileRange;
 use bevy::prelude::{Component, Event};
+use std::mem;
 use strum::{AsRefStr, Display};
+use transform_gizmo_bevy::{GizmoHotkeys, GizmoMode, GizmoOptions};
 
 #[derive(Event, Clone, Debug)]
 pub struct MapEdited(pub MapEdit);
@@ -91,11 +93,79 @@ pub enum EditObject {
 }
 
 impl EditObject {
-    // TODO: Rework exclusive_only to specify an exclusive set
+    pub fn same_type(self, other: EditObject) -> bool {
+        mem::discriminant(&self) == mem::discriminant(&other)
+    }
+
+    pub fn update_gizmos(self, gizmos: GizmoOptions) -> GizmoOptions {
+        match self {
+            Self::StartingPosition => GizmoOptions {
+                gizmo_modes: gizmos.gizmo_modes.intersection(
+                    GizmoMode::TranslateX | GizmoMode::TranslateZ | GizmoMode::TranslateXZ,
+                ),
+                snapping: true,
+                snap_distance: gizmos.snap_distance.max(1.0),
+                group_targets: gizmos.group_targets,
+                hotkeys: Some(GizmoHotkeys {
+                    enable_snapping: None,
+                    enable_accurate_mode: None,
+                    ..gizmos.hotkeys.unwrap_or_default()
+                }),
+                ..gizmos
+            },
+            Self::MapSize(_) => GizmoOptions {
+                // One of these modes won't work, but since GizmoOptions are applied globally and not per-gizmo, this is all we can do.
+                gizmo_modes: gizmos
+                    .gizmo_modes
+                    .intersection(GizmoMode::TranslateX | GizmoMode::TranslateZ),
+                snapping: true,
+                snap_distance: gizmos.snap_distance.max(1.0),
+                group_targets: false,
+                hotkeys: gizmos.hotkeys.map(|hotkeys| GizmoHotkeys {
+                    enable_snapping: None,
+                    enable_accurate_mode: None,
+                    ..hotkeys
+                }),
+                ..gizmos
+            },
+            Self::Camera(_) => GizmoOptions {
+                gizmo_modes: gizmos.gizmo_modes.intersection(
+                    GizmoMode::all_translate() | GizmoMode::all_rotate() | GizmoMode::Arcball,
+                ),
+                snapping: gizmos.snapping,
+                snap_distance: gizmos.snap_angle.max(0.5),
+                group_targets: gizmos.group_targets,
+                hotkeys: gizmos.hotkeys,
+                ..gizmos
+            },
+            Self::Tile(_) => GizmoOptions {
+                gizmo_modes: gizmos
+                    .gizmo_modes
+                    .intersection(GizmoMode::TranslateY.into()),
+                snapping: true,
+                snap_distance: gizmos.snap_scale.max(0.5),
+                group_targets: gizmos.group_targets,
+                hotkeys: gizmos.hotkeys.map(|hotkeys| GizmoHotkeys {
+                    enable_snapping: None,
+                    ..hotkeys
+                }),
+                ..gizmos
+            },
+            Self::None => GizmoOptions {
+                gizmo_modes: GizmoMode::all(),
+                snapping: false,
+                snap_distance: 0.0,
+                group_targets: true,
+                hotkeys: Some(GizmoHotkeys::default()),
+                ..gizmos
+            },
+        }
+    }
+
     pub fn exclusive_only(self) -> bool {
         match self {
-            Self::StartingPosition | Self::Camera(_) => true,
-            Self::MapSize(_) | Self::Tile { .. } | Self::None => false,
+            Self::StartingPosition | Self::Camera(_) | Self::None => true,
+            Self::MapSize(_) | Self::Tile(_) => false,
         }
     }
 
