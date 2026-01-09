@@ -8,7 +8,10 @@ use crate::schema::{
     Connection, ConnectionCondition, CubeMap, MapFile, MpsMaterial, MpsTransform, PopupType,
     ShopItem, ShopNumber, TileHeight, TileRampDirection,
 };
-use crate::sync::{CameraId, Direction, ListEdit, MaterialLocation, PresetView};
+use crate::sync::{
+    CameraId, Direction, ListEdit, MaterialLocation, PresetView, PreviewObject,
+    TogglePreviewVisibility,
+};
 use crate::sync::{EditObject, MapEdit, MapEdited, SelectForEditing};
 use crate::tile_range::TileRange;
 use crate::utils::TriStateCheckbox;
@@ -46,6 +49,7 @@ impl Plugin for MapEditorUi {
             unset_texture_icon: unset_texture_icon(app.get_asset_server()),
             icon_atlas_handle: icons_atlas(app.get_asset_server()),
             item_handles: item_icons(app.get_asset_server()),
+            preview_star_warp_tile: true,
             ..Default::default()
         })
         .add_plugins((
@@ -91,6 +95,7 @@ pub struct UiState {
     item_textures: Option<EnumMap<ShopItem, TextureId>>,
     material_target: Option<(TileRange, MaterialLocation)>,
     item_target: Option<(ShopNumber, usize)>,
+    preview_star_warp_tile: bool,
 }
 
 impl UiState {
@@ -150,11 +155,13 @@ fn on_file_loaded(
     if let Some(old_texture) = state.atlas_texture.replace(new_atlas_texture) {
         state.textures_to_free.push(old_texture);
     }
+
+    state.preview_star_warp_tile = true;
 }
 
 fn on_map_edited(on: On<MapEdited>, mut state: ResMut<UiState>) {
     match &on.0 {
-        MapEdit::StartingPosition(_) => {}
+        MapEdit::StartingTile(_) | MapEdit::StarWarpTile(_) => {}
         MapEdit::Skybox(index, image) => {
             state.waiting_textures.push(SettingImageLoadWait {
                 image: image.image.clone(),
@@ -406,7 +413,7 @@ fn draw_imgui(
         ui.same_line();
         if ui.button("Select") {
             commands.trigger(SelectForEditing {
-                object: EditObject::StartingPosition,
+                object: EditObject::StartingTile,
                 exclusive: true,
             });
         }
@@ -417,7 +424,7 @@ fn draw_imgui(
             .build()
         {
             let starting_tile = file.in_bounds(starting_tile.into());
-            file.edit_map(&mut commands, MapEdit::StartingPosition(starting_tile));
+            file.edit_map(&mut commands, MapEdit::StartingTile(starting_tile));
         }
 
         ui.spacing();
@@ -560,6 +567,39 @@ fn draw_imgui(
             };
             tutorial_camera("Star tutorial", CameraId::StarTutorial, |f| f.tutorial_star);
             tutorial_camera("Shop tutorial", CameraId::ShopTutorial, |f| f.tutorial_shop);
+        }
+
+        if let Some(_token) = ui
+            .tree_node_config("Warp tiles")
+            .framed(true)
+            .tree_push_on_open(false)
+            .push()
+        {
+            ui.text("Star warp tile");
+            ui.same_line();
+            if ui.button("Select##Star warp tile") {
+                state.preview_star_warp_tile = true;
+                commands.trigger(SelectForEditing {
+                    object: EditObject::StarWarpTile,
+                    exclusive: true,
+                });
+            }
+            ui.same_line();
+            if ui.checkbox("Preview##Star warp tile", &mut state.preview_star_warp_tile) {
+                commands.trigger(TogglePreviewVisibility {
+                    object: PreviewObject::StarWarpTile,
+                    visible: state.preview_star_warp_tile,
+                });
+            }
+            let mut star_warp_tile = file.file.star_warp_tile.as_array();
+            if ui
+                .input_scalar_n("##Star warp tile", &mut star_warp_tile)
+                .step(1)
+                .build()
+            {
+                let starting_tile = file.in_bounds(star_warp_tile.into());
+                file.edit_map(&mut commands, MapEdit::StarWarpTile(starting_tile));
+            }
         }
     });
 

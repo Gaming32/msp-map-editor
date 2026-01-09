@@ -1,10 +1,13 @@
-use crate::assets::{PlayerMarker, camera, missing_atlas, missing_skybox, player};
+use crate::assets::{
+    GoldPipeMarker, PlayerMarker, camera, gold_pipe, missing_atlas, missing_skybox, player,
+};
 use crate::culling::CullingPlugin;
 use crate::load_file::{FileLoaded, LoadedFile};
 use crate::mesh::{MapMeshMarker, mesh_map, mesh_top_highlights};
 use crate::schema::MpsVec2;
 use crate::sync::{
-    CameraId, Direction, EditObject, MapEdit, MapEdited, PresetView, SelectForEditing,
+    CameraId, Direction, EditObject, MapEdit, MapEdited, PresetView, PreviewObject,
+    SelectForEditing, TogglePreviewVisibility,
 };
 use crate::tile_range::TileRange;
 use crate::{modifier_key, shortcut_pressed};
@@ -96,6 +99,7 @@ impl Plugin for ViewportPlugin {
         .add_observer(on_select_for_editing)
         .add_observer(on_pointer_click)
         .add_observer(on_preset_view)
+        .add_observer(on_toggle_preview_visibility)
         .add_systems(
             Update,
             (
@@ -199,6 +203,9 @@ struct ViewportObject {
 }
 
 #[derive(Component)]
+#[require(Visibility::Visible)]
+struct VisibilityToggleable(PreviewObject);
+#[derive(Component)]
 struct TemporaryViewportObject;
 #[derive(Component)]
 struct BoundsGizmo(Direction);
@@ -238,7 +245,7 @@ fn on_file_load(
     commands.spawn((
         player(&assets, player_pos),
         ViewportObject {
-            editor: EditObject::StartingPosition,
+            editor: EditObject::StartingTile,
             old_pos: player_pos,
             old_rot: None,
         },
@@ -247,6 +254,17 @@ fn on_file_load(
         *camera = get_player_cam_transform(player_pos);
         skybox.image = state.skybox.current.clone();
     }
+
+    let gold_pipe_pos = get_gold_pipe_pos(&file, file.file.star_warp_tile);
+    commands.spawn((
+        gold_pipe(&assets, gold_pipe_pos),
+        ViewportObject {
+            editor: EditObject::StarWarpTile,
+            old_pos: gold_pipe_pos,
+            old_rot: None,
+        },
+        VisibilityToggleable(PreviewObject::StarWarpTile),
+    ));
 
     for (transform, id) in [
         (file.file.tutorial_star, CameraId::StarTutorial),
@@ -275,6 +293,17 @@ fn on_map_edited(
         (&mut Transform, &mut ViewportObject),
         (
             With<PlayerMarker>,
+            Without<GoldPipeMarker>,
+            Without<BoundsGizmo>,
+            Without<TilesGizmo>,
+            Without<TilesGizmoMesh>,
+            Without<CameraId>,
+        ),
+    >,
+    gold_pipe: Query<
+        (&mut Transform, &mut ViewportObject),
+        (
+            With<GoldPipeMarker>,
             Without<BoundsGizmo>,
             Without<TilesGizmo>,
             Without<TilesGizmoMesh>,
@@ -298,11 +327,15 @@ fn on_map_edited(
     mut textures: ResMut<ViewportState>,
 ) {
     let mut change_player_pos = false;
+    let mut change_gold_pipe_pos = false;
     let mut change_tiles_gizmos = false;
 
     match &on.0 {
-        MapEdit::StartingPosition(_) => {
+        MapEdit::StartingTile(_) => {
             change_player_pos = true;
+        }
+        MapEdit::StarWarpTile(_) => {
+            change_gold_pipe_pos = true;
         }
         MapEdit::Skybox(_, _) => {
             textures.skybox.outdated = true;
@@ -313,6 +346,7 @@ fn on_map_edited(
         MapEdit::ExpandMap(_, _) | MapEdit::ShrinkMap(_) => {
             commands.trigger(RemeshMap);
             change_player_pos = true;
+            change_gold_pipe_pos = true;
             for (mut transform, mut object, bounds) in bounds_markers {
                 transform.translation = get_bounds_gizmo_location(&file, bounds.0);
                 object.old_pos = transform.translation;
@@ -338,6 +372,7 @@ fn on_map_edited(
         MapEdit::AdjustHeight(_, _) | MapEdit::ChangeHeight(_, _) => {
             commands.trigger(RemeshMap);
             change_player_pos = true;
+            change_gold_pipe_pos = true;
             change_tiles_gizmos = true;
         }
         MapEdit::ChangeConnection(_, _, _) | MapEdit::ChangeMaterial(_, _, _) => {
@@ -354,6 +389,13 @@ fn on_map_edited(
         for (mut player, mut viewport_obj) in player {
             player.translation = get_player_pos(&file, file.file.starting_tile);
             viewport_obj.old_pos = player.translation;
+        }
+    }
+
+    if change_gold_pipe_pos {
+        for (mut gold_pipe, mut viewport_obj) in gold_pipe {
+            gold_pipe.translation = get_gold_pipe_pos(&file, file.file.star_warp_tile);
+            viewport_obj.old_pos = gold_pipe.translation;
         }
     }
 
@@ -409,6 +451,7 @@ fn on_select_for_editing(
     current_gizmos: Query<(Entity, &GizmoTarget)>,
     temporary_gizmos: Query<Entity, With<TemporaryViewportObject>>,
     player: Query<Entity, With<PlayerMarker>>,
+    gold_pipe: Query<(Entity, &mut Visibility), With<GoldPipeMarker>>,
     mut tiles_gizmo: Query<
         (&mut Transform, &mut TilesGizmo, &mut ViewportObject),
         Without<TilesGizmoMesh>,
@@ -439,9 +482,15 @@ fn on_select_for_editing(
     *gizmo_options = on.object.update_gizmos(*gizmo_options);
 
     match on.object {
-        EditObject::StartingPosition => {
+        EditObject::StartingTile => {
             for player in player {
                 commands.entity(player).insert(GizmoTarget::default());
+            }
+        }
+        EditObject::StarWarpTile => {
+            for (gold_pipe, mut visible) in gold_pipe {
+                *visible = Visibility::Visible;
+                commands.entity(gold_pipe).insert(GizmoTarget::default());
             }
         }
         EditObject::MapSize(side) => {
@@ -548,12 +597,16 @@ fn get_tile_gizmo_mesh_offset(range: TileRange, file: &LoadedFile) -> Vec3 {
 }
 
 fn get_player_pos(file: &LoadedFile, pos: MpsVec2) -> Vec3 {
-    let tile_y = file
-        .file
-        .data
-        .get(pos.y, pos.x)
-        .map_or(0.0, |tile| tile.height.center_height());
-    Vec3::new(pos.x as f32, tile_y as f32 + 0.375, pos.y as f32)
+    get_height_offset_pos(file, pos, 0.375)
+}
+
+fn get_gold_pipe_pos(file: &LoadedFile, pos: MpsVec2) -> Vec3 {
+    get_height_offset_pos(file, pos, 1.375)
+}
+
+fn get_height_offset_pos(file: &LoadedFile, pos: MpsVec2, offset: f32) -> Vec3 {
+    let tile_y = file.file[pos].height.center_height();
+    Vec3::new(pos.x as f32, tile_y as f32 + offset, pos.y as f32)
 }
 
 fn get_bounds_gizmo_location(file: &LoadedFile, side: Direction) -> Vec3 {
@@ -723,6 +776,33 @@ fn on_preset_view(
     }
 }
 
+fn on_toggle_preview_visibility(
+    on: On<TogglePreviewVisibility>,
+    mut commands: Commands,
+    query: Query<(
+        Entity,
+        &mut Visibility,
+        &VisibilityToggleable,
+        Option<&GizmoTarget>,
+    )>,
+) {
+    for (entity, mut visibility, toggleable, gizmo_target) in query {
+        if toggleable.0 == on.object {
+            *visibility = if on.visible {
+                Visibility::Visible
+            } else {
+                if let Some(target) = gizmo_target {
+                    if target.is_active() {
+                        continue;
+                    }
+                    commands.entity(entity).remove::<GizmoTarget>();
+                }
+                Visibility::Hidden
+            };
+        }
+    }
+}
+
 fn get_selected_entity_aabb(
     entity: Entity,
     world: &World,
@@ -813,7 +893,7 @@ fn sync_from_gizmos(
 ) {
     for (mut transform, mut object, gizmo, tiles) in gizmos {
         match object.editor {
-            EditObject::StartingPosition => {
+            EditObject::StartingTile => {
                 let pos = transform.translation;
                 if pos == object.old_pos {
                     continue;
@@ -822,7 +902,20 @@ fn sync_from_gizmos(
                 if gizmo.is_active() {
                     transform.translation = get_player_pos(&file, in_bounds_pos);
                 } else {
-                    file.edit_map(&mut commands, MapEdit::StartingPosition(in_bounds_pos));
+                    file.edit_map(&mut commands, MapEdit::StartingTile(in_bounds_pos));
+                    object.old_pos = pos;
+                }
+            }
+            EditObject::StarWarpTile => {
+                let pos = transform.translation;
+                if pos == object.old_pos {
+                    continue;
+                }
+                let in_bounds_pos = file.in_bounds(MpsVec2::new(pos.x as i32, pos.z as i32));
+                if gizmo.is_active() {
+                    transform.translation = get_gold_pipe_pos(&file, in_bounds_pos);
+                } else {
+                    file.edit_map(&mut commands, MapEdit::StarWarpTile(in_bounds_pos));
                     object.old_pos = pos;
                 }
             }
@@ -876,8 +969,13 @@ fn sync_from_gizmos(
                         }
                     }
                 }
+
                 let player_pos = file.in_bounds(file.file.starting_tile);
-                file.edit_map(&mut commands, MapEdit::StartingPosition(player_pos));
+                file.edit_map(&mut commands, MapEdit::StartingTile(player_pos));
+
+                let gold_pipe_pos = file.in_bounds(file.file.star_warp_tile);
+                file.edit_map(&mut commands, MapEdit::StarWarpTile(gold_pipe_pos));
+
                 file.end_edit_group();
             }
             EditObject::Camera(camera) => {

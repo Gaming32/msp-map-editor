@@ -4,7 +4,7 @@ use bevy::asset::io::embedded::EmbeddedAssetRegistry;
 use bevy::light::{NotShadowCaster, NotShadowReceiver};
 use bevy::prelude::*;
 use enum_map::{EnumMap, enum_map};
-use std::f32::consts::PI;
+use std::f32::consts::{FRAC_PI_2, PI};
 use std::path::{Path, PathBuf};
 
 macro_rules! asset_path {
@@ -40,6 +40,8 @@ impl Plugin for EmbeddedAssetsPlugin {
 
 #[derive(Component)]
 pub struct PlayerMarker;
+#[derive(Component)]
+pub struct GoldPipeMarker;
 
 pub fn icons_atlas(assets: &AssetServer) -> Handle<Image> {
     assets.load(asset_path!("icons/icons.png"))
@@ -69,11 +71,12 @@ pub fn camera(assets: &AssetServer, position: Vec3, rotation: Quat) -> impl Bund
 
 pub fn gold_pipe(assets: &AssetServer, position: Vec3) -> impl Bundle {
     (
+        GoldPipeMarker,
         SceneRoot(assets.load(asset_path!("objects/gold_pipe.glb#Scene0"))),
         NotShadowCaster,
         Transform::from_translation(position)
             .with_scale(Vec3::splat(0.375))
-            .with_rotation(Quat::from_rotation_y(PI / 2.0)),
+            .with_rotation(Quat::from_euler(EulerRot::XYZ, PI, FRAC_PI_2, 0.0)),
     )
 }
 

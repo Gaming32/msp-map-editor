@@ -67,7 +67,8 @@ impl LoadedFile {
         }
 
         let reversed = match &edit {
-            MapEdit::StartingPosition(_) => MapEdit::StartingPosition(self.file.starting_tile),
+            MapEdit::StartingTile(_) => MapEdit::StartingTile(self.file.starting_tile),
+            MapEdit::StarWarpTile(_) => MapEdit::StarWarpTile(self.file.star_warp_tile),
             MapEdit::Skybox(index, _) => {
                 MapEdit::Skybox(*index, self.loaded_textures.skybox[*index].clone())
             }
@@ -258,7 +259,8 @@ impl LoadedFile {
         }
 
         match &edit {
-            MapEdit::StartingPosition(pos) => self.file.starting_tile = *pos,
+            MapEdit::StartingTile(pos) => self.file.starting_tile = *pos,
+            MapEdit::StarWarpTile(pos) => self.file.star_warp_tile = *pos,
             MapEdit::Skybox(index, image) => {
                 self.loaded_textures.skybox[*index] = image.clone();
             }

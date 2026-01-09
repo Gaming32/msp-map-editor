@@ -14,7 +14,8 @@ pub struct MapEdited(pub MapEdit);
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum MapEdit {
-    StartingPosition(MpsVec2),
+    StartingTile(MpsVec2),
+    StarWarpTile(MpsVec2),
     Skybox(usize, LoadedTexture),
     Atlas(LoadedTexture),
     ExpandMap(Direction, Option<Vec<TileData>>),
@@ -85,7 +86,8 @@ pub struct SelectForEditing {
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum EditObject {
-    StartingPosition,
+    StartingTile,
+    StarWarpTile,
     MapSize(Direction),
     Camera(CameraId),
     Tile(MpsVec2),
@@ -99,7 +101,7 @@ impl EditObject {
 
     pub fn update_gizmos(self, gizmos: GizmoOptions) -> GizmoOptions {
         match self {
-            Self::StartingPosition => GizmoOptions {
+            Self::StartingTile | Self::StarWarpTile => GizmoOptions {
                 gizmo_modes: gizmos.gizmo_modes.intersection(
                     GizmoMode::TranslateX | GizmoMode::TranslateZ | GizmoMode::TranslateXZ,
                 ),
@@ -164,14 +166,14 @@ impl EditObject {
 
     pub fn exclusive_only(self) -> bool {
         match self {
-            Self::StartingPosition | Self::Camera(_) | Self::None => true,
+            Self::StartingTile | Self::StarWarpTile | Self::Camera(_) | Self::None => true,
             Self::MapSize(_) | Self::Tile(_) => false,
         }
     }
 
     pub fn directly_usable(self) -> bool {
         match self {
-            Self::StartingPosition | Self::Camera(_) => true,
+            Self::StartingTile | Self::StarWarpTile | Self::Camera(_) => true,
             Self::MapSize(_) | Self::Tile(_) | Self::None => false,
         }
     }
@@ -201,4 +203,15 @@ pub enum PresetView {
     Selection,
     TopDown,
     Transform(MpsTransform),
+}
+
+#[derive(Event, Copy, Clone, Debug, PartialEq, Eq)]
+pub struct TogglePreviewVisibility {
+    pub object: PreviewObject,
+    pub visible: bool,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum PreviewObject {
+    StarWarpTile,
 }
