@@ -406,7 +406,7 @@ fn on_select_for_editing(
     on: On<SelectForEditing>,
     mut commands: Commands,
     mut gizmo_options: ResMut<GizmoOptions>,
-    current_gizmos: Query<Entity, With<GizmoTarget>>,
+    current_gizmos: Query<(Entity, &GizmoTarget)>,
     temporary_gizmos: Query<Entity, With<TemporaryViewportObject>>,
     player: Query<Entity, With<PlayerMarker>>,
     mut tiles_gizmo: Query<
@@ -418,7 +418,14 @@ fn on_select_for_editing(
     mut file: ResMut<LoadedFile>,
 ) {
     if on.exclusive {
-        for gizmo in current_gizmos {
+        if current_gizmos
+            .clone()
+            .iter()
+            .any(|(_, target)| target.is_active())
+        {
+            return;
+        }
+        for (gizmo, _) in current_gizmos {
             commands.entity(gizmo).remove::<GizmoTarget>();
         }
         for gizmo in temporary_gizmos {
@@ -827,6 +834,7 @@ fn sync_from_gizmos(
                 }
                 let expand = MapEdit::ExpandMap(side, None);
                 let shrink = MapEdit::ShrinkMap(side);
+                file.begin_edit_group();
                 match side {
                     Direction::West | Direction::North => {
                         let axis = if side == Direction::West {
@@ -868,6 +876,9 @@ fn sync_from_gizmos(
                         }
                     }
                 }
+                let player_pos = file.in_bounds(file.file.starting_tile);
+                file.edit_map(&mut commands, MapEdit::StartingPosition(player_pos));
+                file.end_edit_group();
             }
             EditObject::Camera(camera) => {
                 if !gizmo.is_active() {

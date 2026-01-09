@@ -16,7 +16,7 @@ use serde_json::Serializer;
 use serde_json::ser::PrettyFormatter;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
-use std::{env, fs, io, path};
+use std::{env, fs, io, mem, path};
 
 #[derive(Resource, Default)]
 pub struct LoadedFile {
@@ -24,8 +24,7 @@ pub struct LoadedFile {
     pub dirty: bool,
     pub file: MapFile,
     pub loaded_textures: Textures<LoadedTexture>,
-    pub history: Vec<HistoryItem>,
-    pub history_index: usize,
+    history: HistoryTracker,
     pub selected_range: Option<TileRange>,
 }
 
@@ -170,28 +169,76 @@ impl LoadedFile {
             }
         }
 
-        self.history.truncate(self.history_index);
-        self.history.push(HistoryItem {
+        let history_item = SimpleHistoryItem {
             forward: edit.clone(),
             back: reversed,
-        });
-        self.history_index += 1;
+        };
+        self.history.items.truncate(self.history.index);
+        if let Some(group) = &mut self.history.edit_group {
+            group.push(history_item);
+        } else {
+            self.history.items.push(HistoryItem::Simple(history_item));
+            self.history.index += 1;
+        }
 
         self.apply_edit(commands, edit);
         true
     }
 
     pub fn undo(&mut self, commands: &mut Commands) {
-        if self.history_index > 0 {
-            self.history_index -= 1;
-            self.apply_edit(commands, self.history[self.history_index].back.clone());
+        if self.history.index > 0 {
+            self.history.index -= 1;
+            let items = mem::take(&mut self.history.items);
+            match &items[self.history.index] {
+                HistoryItem::Simple(item) => self.apply_edit(commands, item.back.clone()),
+                HistoryItem::Group(group) => {
+                    for item in group.iter().rev() {
+                        self.apply_edit(commands, item.back.clone());
+                    }
+                }
+            }
+            self.history.items = items;
         }
     }
 
     pub fn redo(&mut self, commands: &mut Commands) {
-        if self.history_index < self.history.len() {
-            self.apply_edit(commands, self.history[self.history_index].forward.clone());
-            self.history_index += 1;
+        if self.history.index < self.history.items.len() {
+            let items = mem::take(&mut self.history.items);
+            match &items[self.history.index] {
+                HistoryItem::Simple(item) => self.apply_edit(commands, item.forward.clone()),
+                HistoryItem::Group(group) => {
+                    for item in group {
+                        self.apply_edit(commands, item.forward.clone());
+                    }
+                }
+            }
+            self.history.items = items;
+            self.history.index += 1;
+        }
+    }
+
+    pub fn begin_edit_group(&mut self) {
+        if self.history.edit_group_depth == 0 {
+            self.history.edit_group = Some(vec![]);
+        }
+        self.history.edit_group_depth += 1;
+    }
+
+    pub fn end_edit_group(&mut self) {
+        self.history.edit_group_depth -= 1;
+        if self.history.edit_group_depth == 0 {
+            let Some(group) = self.history.edit_group.take() else {
+                panic!("end_edit_group called with no active group");
+            };
+            match group.len() {
+                0 => {}
+                1 => self
+                    .history
+                    .items
+                    .push(HistoryItem::Simple(group.into_iter().next().unwrap())),
+                _ => self.history.items.push(HistoryItem::Group(group)),
+            }
+            self.history.index += 1;
         }
     }
 
@@ -339,11 +386,11 @@ impl LoadedFile {
     }
 
     pub fn can_undo(&self) -> bool {
-        self.history_index > 0
+        self.history.index > 0
     }
 
     pub fn can_redo(&self) -> bool {
-        self.history_index < self.history.len()
+        self.history.index < self.history.items.len()
     }
 }
 
@@ -353,10 +400,24 @@ pub struct LoadedTexture {
     pub image: Handle<Image>,
 }
 
+#[derive(Default)]
+struct HistoryTracker {
+    items: Vec<HistoryItem>,
+    index: usize,
+    edit_group: Option<Vec<SimpleHistoryItem>>,
+    edit_group_depth: usize,
+}
+
 #[derive(Clone, Debug)]
-pub struct HistoryItem {
-    pub forward: MapEdit,
-    pub back: MapEdit,
+enum HistoryItem {
+    Simple(SimpleHistoryItem),
+    Group(Vec<SimpleHistoryItem>),
+}
+
+#[derive(Clone, Debug)]
+struct SimpleHistoryItem {
+    forward: MapEdit,
+    back: MapEdit,
 }
 
 pub struct LoadFilePlugin;
@@ -554,8 +615,7 @@ fn handle_load(
     };
 
     open_file.path = Some(path);
-    open_file.history.clear();
-    open_file.history_index = 0;
+    open_file.history = HistoryTracker::default();
     open_file.selected_range = None;
     true
 }
