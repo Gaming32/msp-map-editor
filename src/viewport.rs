@@ -473,7 +473,7 @@ fn on_select_for_editing(
         }
         EditObject::Camera(target) => {
             *gizmo_options = GizmoOptions {
-                gizmo_modes: GizmoMode::all_translate() | GizmoMode::all_rotate(),
+                gizmo_modes: GizmoMode::all_translate() | GizmoMode::all_rotate() | GizmoMode::Arcball,
                 snap_distance: 0.5,
                 snapping: false,
                 hotkeys: Some(GizmoHotkeys::default()),

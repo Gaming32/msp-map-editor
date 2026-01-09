@@ -213,13 +213,13 @@ impl From<Vec3> for MpsVec3 {
 
 impl From<MpsVec3> for Quat {
     fn from(val: MpsVec3) -> Self {
-        Quat::from_euler(EulerRot::XYZ, val.x as f32, val.y as f32, val.z as f32)
+        Quat::from_euler(EulerRot::YXZ, val.y as f32, val.x as f32, val.z as f32)
     }
 }
 
 impl From<Quat> for MpsVec3 {
     fn from(value: Quat) -> Self {
-        let (x, y, z) = value.to_euler(EulerRot::XYZ);
+        let (y, x, z) = value.to_euler(EulerRot::YXZ);
         Self::new(x as f64, y as f64, z as f64)
     }
 }
