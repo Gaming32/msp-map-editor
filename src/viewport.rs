@@ -730,8 +730,6 @@ fn on_preset_view(
                     target: transform.translation + forwards,
                     up: transform.up().as_vec3(),
                 };
-                info!("New transform (simple): {new_transform:?}");
-                info!("Forwards: {forwards:?}");
                 if forwards.y < -0.001 {
                     compute_grounded_look_transform(new_transform)
                 } else {
@@ -739,7 +737,6 @@ fn on_preset_view(
                 }
             }
         };
-        info!("New transform: {new_transform:?}");
         commands.entity(camera).insert(transform.ease_to(
             new_transform,
             EaseFunction::QuinticInOut,
