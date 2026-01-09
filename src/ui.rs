@@ -96,6 +96,7 @@ pub struct UiState {
     material_target: Option<(TileRange, MaterialLocation)>,
     item_target: Option<(ShopNumber, usize)>,
     preview_star_warp_tile: bool,
+    preview_podium: bool,
 }
 
 impl UiState {
@@ -161,7 +162,7 @@ fn on_file_loaded(
 
 fn on_map_edited(on: On<MapEdited>, mut state: ResMut<UiState>) {
     match &on.0 {
-        MapEdit::StartingTile(_) | MapEdit::StarWarpTile(_) => {}
+        MapEdit::StartingTile(_) | MapEdit::StarWarpTile(_) | MapEdit::PodiumPosition(_) => {}
         MapEdit::Skybox(index, image) => {
             state.waiting_textures.push(SettingImageLoadWait {
                 image: image.image.clone(),
@@ -587,7 +588,7 @@ fn draw_imgui(
             ui.same_line();
             if ui.checkbox("Preview##Star warp tile", &mut state.preview_star_warp_tile) {
                 commands.trigger(TogglePreviewVisibility {
-                    object: PreviewObject::StarWarpTile,
+                    object: PreviewObject::GoldPipe,
                     visible: state.preview_star_warp_tile,
                 });
             }
@@ -597,8 +598,41 @@ fn draw_imgui(
                 .step(1)
                 .build()
             {
-                let starting_tile = file.in_bounds(star_warp_tile.into());
-                file.edit_map(&mut commands, MapEdit::StarWarpTile(starting_tile));
+                let star_warp_tile = file.in_bounds(star_warp_tile.into());
+                file.edit_map(&mut commands, MapEdit::StarWarpTile(star_warp_tile));
+            }
+        }
+
+        if let Some(_token) = ui
+            .tree_node_config("Ending sequence")
+            .framed(true)
+            .tree_push_on_open(false)
+            .push()
+        {
+            ui.text("Podium");
+            ui.same_line();
+            if ui.button("Select##Podium") {
+                state.preview_podium = true;
+                commands.trigger(SelectForEditing {
+                    object: EditObject::PodiumPosition,
+                    exclusive: true,
+                });
+            }
+            ui.same_line();
+            if ui.checkbox("Preview##Podium", &mut state.preview_podium) {
+                commands.trigger(TogglePreviewVisibility {
+                    object: PreviewObject::Podium,
+                    visible: state.preview_podium,
+                });
+            }
+            let mut podium_pos = file.file.podium_position.as_array();
+            if ui
+                .input_scalar_n("##Podium", &mut podium_pos)
+                .step(1)
+                .build()
+            {
+                let podium_pos = file.in_bounds(podium_pos.into());
+                file.edit_map(&mut commands, MapEdit::PodiumPosition(podium_pos));
             }
         }
     });

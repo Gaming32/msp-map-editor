@@ -42,6 +42,8 @@ impl Plugin for EmbeddedAssetsPlugin {
 pub struct PlayerMarker;
 #[derive(Component)]
 pub struct GoldPipeMarker;
+#[derive(Component)]
+pub struct PodiumMarker;
 
 pub fn icons_atlas(assets: &AssetServer) -> Handle<Image> {
     assets.load(asset_path!("icons/icons.png"))
@@ -86,6 +88,14 @@ pub fn key_gate(assets: &AssetServer, position: Vec3, rotation: f32) -> (SceneRo
         Transform::from_translation(position)
             .with_scale(Vec3::splat(10.0 / 16.0))
             .with_rotation(Quat::from_rotation_y(rotation)),
+    )
+}
+
+pub fn podium(assets: &AssetServer, position: Vec3) -> impl Bundle {
+    (
+        PodiumMarker,
+        SceneRoot(assets.load(asset_path!("objects/podium.glb#Scene0"))),
+        Transform::from_translation(position),
     )
 }
 

@@ -1,5 +1,6 @@
 use crate::assets::{
-    GoldPipeMarker, PlayerMarker, camera, gold_pipe, missing_atlas, missing_skybox, player,
+    GoldPipeMarker, PlayerMarker, PodiumMarker, camera, gold_pipe, missing_atlas, missing_skybox,
+    player, podium,
 };
 use crate::culling::CullingPlugin;
 use crate::load_file::{FileLoaded, LoadedFile};
@@ -263,7 +264,19 @@ fn on_file_load(
             old_pos: gold_pipe_pos,
             old_rot: None,
         },
-        VisibilityToggleable(PreviewObject::StarWarpTile),
+        VisibilityToggleable(PreviewObject::GoldPipe),
+    ));
+
+    let podium_pos = get_podium_pos(&file, file.file.podium_position);
+    commands.spawn((
+        podium(&assets, podium_pos),
+        ViewportObject {
+            editor: EditObject::PodiumPosition,
+            old_pos: podium_pos,
+            old_rot: None,
+        },
+        Visibility::Hidden,
+        VisibilityToggleable(PreviewObject::Podium),
     ));
 
     for (transform, id) in [
@@ -294,6 +307,7 @@ fn on_map_edited(
         (
             With<PlayerMarker>,
             Without<GoldPipeMarker>,
+            Without<PodiumMarker>,
             Without<BoundsGizmo>,
             Without<TilesGizmo>,
             Without<TilesGizmoMesh>,
@@ -304,6 +318,17 @@ fn on_map_edited(
         (&mut Transform, &mut ViewportObject),
         (
             With<GoldPipeMarker>,
+            Without<PodiumMarker>,
+            Without<BoundsGizmo>,
+            Without<TilesGizmo>,
+            Without<TilesGizmoMesh>,
+            Without<CameraId>,
+        ),
+    >,
+    podium: Query<
+        (&mut Transform, &mut ViewportObject),
+        (
+            With<PodiumMarker>,
             Without<BoundsGizmo>,
             Without<TilesGizmo>,
             Without<TilesGizmoMesh>,
@@ -328,6 +353,7 @@ fn on_map_edited(
 ) {
     let mut change_player_pos = false;
     let mut change_gold_pipe_pos = false;
+    let mut change_podium_pos = false;
     let mut change_tiles_gizmos = false;
 
     match &on.0 {
@@ -336,6 +362,9 @@ fn on_map_edited(
         }
         MapEdit::StarWarpTile(_) => {
             change_gold_pipe_pos = true;
+        }
+        MapEdit::PodiumPosition(_) => {
+            change_podium_pos = true;
         }
         MapEdit::Skybox(_, _) => {
             textures.skybox.outdated = true;
@@ -399,6 +428,13 @@ fn on_map_edited(
         }
     }
 
+    if change_podium_pos {
+        for (mut podium, mut viewport_obj) in podium {
+            podium.translation = get_podium_pos(&file, file.file.podium_position);
+            viewport_obj.old_pos = podium.translation;
+        }
+    }
+
     if change_tiles_gizmos && let Ok((mut transform, mut object, gizmo)) = tiles_gizmo.single_mut()
     {
         let offset = get_tile_gizmo_mesh_offset(gizmo.0, &file);
@@ -451,7 +487,8 @@ fn on_select_for_editing(
     current_gizmos: Query<(Entity, &GizmoTarget)>,
     temporary_gizmos: Query<Entity, With<TemporaryViewportObject>>,
     player: Query<Entity, With<PlayerMarker>>,
-    gold_pipe: Query<(Entity, &mut Visibility), With<GoldPipeMarker>>,
+    gold_pipe: Query<(Entity, &mut Visibility), (With<GoldPipeMarker>, Without<PodiumMarker>)>,
+    podium: Query<(Entity, &mut Visibility), With<PodiumMarker>>,
     mut tiles_gizmo: Query<
         (&mut Transform, &mut TilesGizmo, &mut ViewportObject),
         Without<TilesGizmoMesh>,
@@ -491,6 +528,12 @@ fn on_select_for_editing(
             for (gold_pipe, mut visible) in gold_pipe {
                 *visible = Visibility::Visible;
                 commands.entity(gold_pipe).insert(GizmoTarget::default());
+            }
+        }
+        EditObject::PodiumPosition => {
+            for (podium, mut visible) in podium {
+                *visible = Visibility::Visible;
+                commands.entity(podium).insert(GizmoTarget::default());
             }
         }
         EditObject::MapSize(side) => {
@@ -602,6 +645,10 @@ fn get_player_pos(file: &LoadedFile, pos: MpsVec2) -> Vec3 {
 
 fn get_gold_pipe_pos(file: &LoadedFile, pos: MpsVec2) -> Vec3 {
     get_height_offset_pos(file, pos, 1.375)
+}
+
+fn get_podium_pos(file: &LoadedFile, pos: MpsVec2) -> Vec3 {
+    get_height_offset_pos(file, pos, 0.0)
 }
 
 fn get_height_offset_pos(file: &LoadedFile, pos: MpsVec2, offset: f32) -> Vec3 {
@@ -916,6 +963,19 @@ fn sync_from_gizmos(
                     transform.translation = get_gold_pipe_pos(&file, in_bounds_pos);
                 } else {
                     file.edit_map(&mut commands, MapEdit::StarWarpTile(in_bounds_pos));
+                    object.old_pos = pos;
+                }
+            }
+            EditObject::PodiumPosition => {
+                let pos = transform.translation;
+                if pos == object.old_pos {
+                    continue;
+                }
+                let in_bounds_pos = file.in_bounds(MpsVec2::new(pos.x as i32, pos.z as i32));
+                if gizmo.is_active() {
+                    transform.translation = get_podium_pos(&file, in_bounds_pos);
+                } else {
+                    file.edit_map(&mut commands, MapEdit::PodiumPosition(in_bounds_pos));
                     object.old_pos = pos;
                 }
             }
