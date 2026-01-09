@@ -1,4 +1,4 @@
-use crate::assets::{icons_atlas, unset_texture_icon};
+use crate::assets::{icons_atlas, item_icons, unset_texture_icon};
 use crate::docking::UiDocking;
 use crate::load_file::{
     FileLoaded, LoadedFile, LoadedTexture, MapFileDialog, new_file, open_file, save_file,
@@ -6,7 +6,7 @@ use crate::load_file::{
 };
 use crate::schema::{
     Connection, ConnectionCondition, CubeMap, MapFile, MpsMaterial, MpsTransform, PopupType,
-    ShopNumber, TileHeight, TileRampDirection,
+    ShopItem, ShopNumber, TileHeight, TileRampDirection,
 };
 use crate::sync::{CameraId, Direction, ListEdit, MaterialLocation, PresetView};
 use crate::sync::{EditObject, MapEdit, MapEdited, SelectForEditing};
@@ -23,12 +23,14 @@ use bevy::render::render_resource::Extent3d;
 use bevy::window::{PrimaryWindow, WindowCloseRequested};
 use bevy_file_dialog::{DialogFilePicked, FileDialogExt, FileDialogPlugin};
 use bevy_mod_imgui::prelude::*;
+use enum_map::{Enum, EnumMap, enum_map};
 use imgui::Image as ImguiImage;
 use itertools::Itertools;
 use monostate::MustBeBool;
 use std::borrow::Cow;
 use std::mem;
 use std::time::Duration;
+use strum::VariantArray;
 
 pub struct MapEditorUi;
 
@@ -43,6 +45,7 @@ impl Plugin for MapEditorUi {
             free_timer: Timer::new(Duration::from_millis(500), TimerMode::Repeating),
             unset_texture_icon: unset_texture_icon(app.get_asset_server()),
             icon_atlas_handle: icons_atlas(app.get_asset_server()),
+            item_handles: item_icons(app.get_asset_server()),
             ..Default::default()
         })
         .add_plugins((
@@ -84,7 +87,10 @@ pub struct UiState {
     unset_texture_icon: Handle<BevyImage>,
     icon_atlas_handle: Handle<BevyImage>,
     icon_atlas_texture: Option<TextureId>,
+    item_handles: EnumMap<ShopItem, Handle<BevyImage>>,
+    item_textures: Option<EnumMap<ShopItem, TextureId>>,
     material_target: Option<(TileRange, MaterialLocation)>,
+    item_target: Option<(ShopNumber, usize)>,
 }
 
 impl UiState {
@@ -165,6 +171,7 @@ fn on_map_edited(on: On<MapEdited>, mut state: ResMut<UiState>) {
         | MapEdit::ShrinkMap(_)
         | MapEdit::ChangeCameraPos(_, _)
         | MapEdit::ChangeCameraRot(_, _)
+        | MapEdit::EditShop(_, _, _)
         | MapEdit::AdjustHeight(_, _)
         | MapEdit::ChangeHeight(_, _)
         | MapEdit::ChangeConnection(_, _, _)
@@ -257,6 +264,17 @@ fn draw_imgui(
     if state.icon_atlas_texture.is_none() && assets.is_loaded(&state.icon_atlas_handle) {
         state.icon_atlas_texture =
             Some(context.register_bevy_texture(state.icon_atlas_handle.clone()));
+    }
+    if state.item_textures.is_none()
+        && state
+            .item_handles
+            .as_array()
+            .iter()
+            .all(|x| assets.is_loaded(x))
+    {
+        state.item_textures = Some(enum_map! {
+            x => context.register_bevy_texture(state.item_handles[x].clone()),
+        });
     }
 
     state.free_timer.tick(time.delta());
@@ -382,6 +400,7 @@ fn draw_imgui(
         }
     });
 
+    let mut open_item_picker = false;
     ui.window("Map settings").collapsible(true).build(|| {
         ui.text("Starting tile");
         ui.same_line();
@@ -484,6 +503,18 @@ fn draw_imgui(
                 }
                 ui.same_line();
                 ui.text(label);
+            }
+        }
+
+        if let Some(_token) = ui
+            .tree_node_config("Shops")
+            .framed(true)
+            .tree_push_on_open(false)
+            .push()
+        {
+            for &shop in ShopNumber::VARIANTS {
+                open_item_picker |=
+                    shop_editor(&ui, &mut commands, &mut state, &mut file, shop, shop.into());
             }
         }
 
@@ -714,7 +745,7 @@ fn draw_imgui(
                 }
             };
 
-            material_button(Cow::Borrowed("##Top material"), None);
+            material_button(Cow::Borrowed("Top material"), None);
             ui.same_line();
             ui.text("Top material");
 
@@ -730,12 +761,12 @@ fn draw_imgui(
                 let min_segments = segment_count.unwrap_or_else(|| len_iter.min().unwrap());
                 for index in 0..min_segments {
                     let location = Some((*side, index));
-                    material_button(Cow::Owned(format!("##{side} material {index}")), location);
+                    material_button(Cow::Owned(format!("{side} segment {index}")), location);
 
                     ui.same_line();
                     ui.disabled(index == 0, || {
                         if ui
-                            .image_button_config(format!("Move up {index}"), icon_atlas, [16.0; 2])
+                            .image_button_config(format!("Move segment up {index}"), icon_atlas, [16.0; 2])
                             .uv0([0.0, 0.5])
                             .uv1([0.5, 1.0])
                             .build()
@@ -752,7 +783,7 @@ fn draw_imgui(
                     ui.disabled(index >= min_segments - 1, || {
                         if ui
                             .image_button_config(
-                                format!("Move down {index}"),
+                                format!("Move segment down {index}"),
                                 icon_atlas,
                                 [16.0; 2],
                             )
@@ -771,7 +802,7 @@ fn draw_imgui(
                     ui.same_line();
                     ui.disabled(min_segments < 2, || {
                         if ui
-                            .image_button_config(format!("Remove {index}"), icon_atlas, [16.0; 2])
+                            .image_button_config(format!("Remove segment {index}"), icon_atlas, [16.0; 2])
                             .uv0([0.5, 0.0])
                             .uv1([1.0, 0.5])
                             .build()
@@ -875,7 +906,7 @@ fn draw_imgui(
                 file.edit_map(&mut commands, MapEdit::ChangeSilverStarSpawnable(range, vec![silver_star_spawnable.unwrap(); range.area()]));
             }
 
-            simple_combo_box!(
+            let popup = simple_combo_box!(
                 label: "Popup type",
                 getter: (.popup),
                 options: [
@@ -894,9 +925,7 @@ fn draw_imgui(
                     Some(PopupType::Star1) => "Star",
                     Some(PopupType::Star2) => "Two stars",
                     Some(PopupType::StarSteal) => "Star steal",
-                    Some(PopupType::Shop(ShopNumber::Shop1)) => "Shop #1",
-                    Some(PopupType::Shop(ShopNumber::Shop2)) => "Shop #2",
-                    Some(PopupType::Shop(ShopNumber::Shop3)) => "Shop #3",
+                    Some(PopupType::Shop(shop)) => <ShopNumber as Into<&str>>::into(shop),
                 },
                 editor: |new_popup| file.edit_map(
                     &mut commands,
@@ -904,14 +933,42 @@ fn draw_imgui(
                 ),
             );
 
-            // TODO: Preview shop
+            if let Some(Some(PopupType::Shop(shop)))= popup {
+                open_item_picker |= shop_editor(&ui, &mut commands, &mut state, &mut file, shop, "Shop items");
+            }
         }
     });
+
+    if open_item_picker {
+        ui.open_popup("Item picker");
+    }
     if open_material_picker {
         ui.open_popup("Material picker");
     }
 
     viewport_target.disable_input = false;
+
+    if let Some(textures) = state.item_textures
+        && let Some((target_shop, target_index)) = state.item_target
+    {
+        ui.popup("Item picker", || {
+            viewport_target.disable_input = true;
+            const PER_ROW: usize = ShopItem::LENGTH.isqrt();
+            for (index, &item) in ShopItem::VARIANTS.iter().enumerate() {
+                if index % PER_ROW != 0 {
+                    ui.same_line();
+                }
+                if ui.image_button(format!("Item {index}"), textures[item], [124.0; 2]) {
+                    file.edit_map(
+                        &mut commands,
+                        MapEdit::EditShop(target_shop, target_index, ListEdit::Set(item)),
+                    );
+                    ui.close_current_popup();
+                }
+            }
+        });
+    }
+
     if let Some(atlas) = state.atlas_texture
         && let Some((target_range, target_location)) = state.material_target
     {
@@ -986,6 +1043,90 @@ fn draw_imgui(
             ui.close_current_popup();
         }
     });
+}
+
+fn shop_editor(
+    ui: &&mut Ui,
+    commands: &mut Commands,
+    state: &mut ResMut<UiState>,
+    file: &mut ResMut<LoadedFile>,
+    shop: ShopNumber,
+    label: &str,
+) -> bool {
+    let Some(icon_atlas) = state.icon_atlas_texture else {
+        return false;
+    };
+    let Some(item_textures) = state.item_textures else {
+        return false;
+    };
+    let Some(_token) = ui.tree_node(label) else {
+        return false;
+    };
+    let shop_items = &file.file.shops[shop];
+
+    let mut edit = None;
+    let mut open_item_picker = false;
+    for (index, &item) in shop_items.iter().enumerate() {
+        if ui.image_button(format!("Item {index}"), item_textures[item], [62.0; 2]) {
+            state.item_target = Some((shop, index));
+            open_item_picker = true;
+        }
+
+        ui.same_line();
+        ui.disabled(index == 0, || {
+            if ui
+                .image_button_config(format!("Move item up {index}"), icon_atlas, [16.0; 2])
+                .uv0([0.0, 0.5])
+                .uv1([0.5, 1.0])
+                .build()
+            {
+                edit = Some(MapEdit::EditShop(shop, index, ListEdit::MoveUp));
+            }
+        });
+
+        ui.same_line();
+        ui.disabled(index >= shop_items.len() - 1, || {
+            if ui
+                .image_button_config(format!("Move item down {index}"), icon_atlas, [16.0; 2])
+                .uv0([0.5, 0.5])
+                .uv1([1.0, 1.0])
+                .build()
+            {
+                edit = Some(MapEdit::EditShop(shop, index, ListEdit::MoveDown));
+            }
+        });
+
+        ui.same_line();
+        ui.disabled(shop_items.len() < 2, || {
+            if ui
+                .image_button_config(format!("Remove item {index}"), icon_atlas, [16.0; 2])
+                .uv0([0.5, 0.0])
+                .uv1([1.0, 0.5])
+                .build()
+            {
+                edit = Some(MapEdit::EditShop(shop, index, ListEdit::Remove));
+            }
+        });
+    }
+    if ui.button("Add item") {
+        edit = Some(MapEdit::EditShop(
+            shop,
+            shop_items.len(),
+            ListEdit::Insert(ShopItem::default()),
+        ));
+    }
+    if let Some(edit) = edit {
+        let (index, item) = match &edit {
+            MapEdit::EditShop(_, index, item) => (*index, *item),
+            _ => unreachable!(),
+        };
+        file.edit_map(commands, edit);
+        if matches!(item, ListEdit::Insert(_)) {
+            state.item_target = Some((shop, index));
+            open_item_picker = true;
+        }
+    }
+    open_item_picker
 }
 
 fn keyboard_handler(

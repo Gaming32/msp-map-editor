@@ -1,7 +1,9 @@
 use crate::culling::CullIfInside;
+use crate::schema::ShopItem;
 use bevy::asset::io::embedded::EmbeddedAssetRegistry;
 use bevy::light::{NotShadowCaster, NotShadowReceiver};
 use bevy::prelude::*;
+use enum_map::{EnumMap, enum_map};
 use std::f32::consts::PI;
 use std::path::{Path, PathBuf};
 
@@ -45,6 +47,12 @@ pub fn icons_atlas(assets: &AssetServer) -> Handle<Image> {
 
 pub fn unset_texture_icon(assets: &AssetServer) -> Handle<Image> {
     assets.load(asset_path!("icons/unset_texture.png"))
+}
+
+pub fn item_icons(assets: &AssetServer) -> EnumMap<ShopItem, Handle<Image>> {
+    enum_map! {
+        item => assets.load(format!("embedded://msp_map_editor/assets/items/{item}.png")),
+    }
 }
 
 pub fn camera(assets: &AssetServer, position: Vec3, rotation: Quat) -> impl Bundle {

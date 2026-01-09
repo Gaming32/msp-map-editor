@@ -107,6 +107,11 @@ impl LoadedFile {
                     CameraId::ShopTutorial => self.file.tutorial_shop.rot,
                 },
             ),
+            MapEdit::EditShop(shop, index, edit) => MapEdit::EditShop(
+                *shop,
+                *index,
+                edit.reverse(|| self.file.shops[*shop][*index]),
+            ),
             MapEdit::AdjustHeight(range, change) => MapEdit::AdjustHeight(*range, -change),
             MapEdit::ChangeHeight(range, _) => MapEdit::ChangeHeight(
                 *range,
@@ -126,13 +131,7 @@ impl LoadedFile {
                 range
                     .into_iter()
                     .zip(edits.iter())
-                    .map(|(pos, &edit)| match edit {
-                        ListEdit::Set(_) => ListEdit::Set(self.file[pos].materials[*location]),
-                        ListEdit::MoveUp => ListEdit::MoveUp,
-                        ListEdit::MoveDown => ListEdit::MoveDown,
-                        ListEdit::Remove => ListEdit::Insert(self.file[pos].materials[*location]),
-                        ListEdit::Insert(_) => ListEdit::Remove,
-                    })
+                    .map(|(pos, edit)| edit.reverse(|| self.file[pos].materials[*location]))
                     .collect(),
             ),
             MapEdit::ChangePopupType(range, _) => MapEdit::ChangePopupType(
@@ -160,9 +159,10 @@ impl LoadedFile {
         };
         if edit == reversed {
             let is_equal_reverse = match &reversed {
-                MapEdit::ChangeMaterial(_, _, edits) => edits
-                    .iter()
-                    .all(|e| matches!(e, ListEdit::MoveUp | ListEdit::MoveDown)),
+                MapEdit::EditShop(_, _, edit) => edit.is_self_opposite(),
+                MapEdit::ChangeMaterial(_, _, edits) => {
+                    edits.iter().all(ListEdit::is_self_opposite)
+                }
                 _ => false,
             };
             if !is_equal_reverse {
@@ -263,6 +263,7 @@ impl LoadedFile {
                 CameraId::StarTutorial => self.file.tutorial_star.rot = *rot,
                 CameraId::ShopTutorial => self.file.tutorial_shop.rot = *rot,
             },
+            MapEdit::EditShop(shop, index, edit) => edit.apply(*index, &mut self.file.shops[*shop]),
             MapEdit::AdjustHeight(range, change) => self.file.adjust_height(*range, *change),
             MapEdit::ChangeHeight(range, new) => {
                 check_edit_range!(range, new, ChangeHeight);
@@ -285,16 +286,7 @@ impl LoadedFile {
                         }
                         _ => {
                             let (side, index) = location.unwrap();
-                            let vec = &mut self.file[pos].materials.wall_material[side];
-                            match edit {
-                                ListEdit::Set(_) => unreachable!(),
-                                ListEdit::MoveUp => vec.swap(index - 1, index),
-                                ListEdit::MoveDown => vec.swap(index, index + 1),
-                                ListEdit::Remove => {
-                                    vec.remove(index);
-                                }
-                                ListEdit::Insert(material) => vec.insert(index, material),
-                            }
+                            edit.apply(index, &mut self.file[pos].materials.wall_material[side]);
                         }
                     }
                 }

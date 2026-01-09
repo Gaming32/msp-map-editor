@@ -333,6 +333,7 @@ fn on_map_edited(
                 }
             }
         }
+        MapEdit::EditShop(_, _, _) => {}
         MapEdit::AdjustHeight(_, _) | MapEdit::ChangeHeight(_, _) => {
             commands.trigger(RemeshMap);
             change_player_pos = true;

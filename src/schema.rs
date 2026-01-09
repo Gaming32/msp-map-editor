@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_with::OneOrMany;
 use serde_with::serde_as;
 use std::ops::{AddAssign, Index, IndexMut, Sub};
-use strum::IntoStaticStr;
+use strum::{Display, IntoStaticStr, VariantArray};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -233,19 +233,47 @@ pub struct Textures<T> {
 
 pub type CubeMap<T> = [T; 6];
 
-#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, Enum)]
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    Enum,
+    IntoStaticStr,
+    VariantArray,
+)]
 #[serde(rename_all = "kebab-case")]
 pub enum ShopNumber {
     #[default]
     #[serde(rename = "shop-1")]
+    #[strum(serialize = "Shop #1")]
     Shop1,
     #[serde(rename = "shop-2")]
+    #[strum(serialize = "Shop #2")]
     Shop2,
     #[serde(rename = "shop-3")]
+    #[strum(serialize = "Shop #3")]
     Shop3,
 }
 
-#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, IntoStaticStr)]
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    Enum,
+    IntoStaticStr,
+    Display,
+    VariantArray,
+)]
 #[serde(rename_all = "lowercase")]
 #[strum(serialize_all = "lowercase")]
 pub enum ShopItem {

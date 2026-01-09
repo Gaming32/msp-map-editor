@@ -1,6 +1,7 @@
 use crate::load_file::LoadedTexture;
 use crate::schema::{
-    Connection, MpsMaterial, MpsTransform, MpsVec2, MpsVec3, PopupType, TileData, TileHeight,
+    Connection, MpsMaterial, MpsTransform, MpsVec2, MpsVec3, PopupType, ShopItem, ShopNumber,
+    TileData, TileHeight,
 };
 use crate::tile_range::TileRange;
 use bevy::prelude::{Component, Event};
@@ -18,6 +19,7 @@ pub enum MapEdit {
     ShrinkMap(Direction),
     ChangeCameraPos(CameraId, MpsVec3),
     ChangeCameraRot(CameraId, MpsVec3),
+    EditShop(ShopNumber, usize, ListEdit<ShopItem>),
     AdjustHeight(TileRange, f64),
     ChangeHeight(TileRange, Vec<TileHeight>),
     ChangeConnection(TileRange, Direction, Vec<Connection>),
@@ -37,6 +39,34 @@ pub enum ListEdit<V> {
     MoveDown,
     Remove,
     Insert(V),
+}
+
+impl<V> ListEdit<V> {
+    pub fn reverse(&self, old_value: impl FnOnce() -> V) -> Self {
+        match self {
+            Self::Set(_) => Self::Set(old_value()),
+            Self::MoveUp => Self::MoveUp,
+            Self::MoveDown => Self::MoveDown,
+            Self::Remove => Self::Insert(old_value()),
+            Self::Insert(_) => Self::Remove,
+        }
+    }
+
+    pub fn is_self_opposite(&self) -> bool {
+        matches!(self, Self::MoveUp | Self::MoveDown)
+    }
+
+    pub fn apply(self, index: usize, vec: &mut Vec<V>) {
+        match self {
+            Self::Set(value) => vec[index] = value,
+            Self::MoveUp => vec.swap(index - 1, index),
+            Self::MoveDown => vec.swap(index, index + 1),
+            Self::Remove => {
+                vec.remove(index);
+            }
+            Self::Insert(value) => vec.insert(index, value),
+        }
+    }
 }
 
 #[derive(Component, Copy, Clone, Debug, PartialEq, Eq)]
