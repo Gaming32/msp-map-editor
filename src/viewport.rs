@@ -1262,8 +1262,19 @@ fn sync_from_gizmos(
                 let player_pos = file.in_bounds(file.file.starting_tile);
                 file.edit_map(&mut commands, MapEdit::StartingTile(player_pos));
 
+                for index in 0..file.file.shop_warp_tiles.len() {
+                    let tile = file.in_bounds(file.file.shop_warp_tiles[index]);
+                    file.edit_map(
+                        &mut commands,
+                        MapEdit::ShopWarpTile(index, ListEdit::Set(tile)),
+                    );
+                }
+
                 let gold_pipe_pos = file.in_bounds(file.file.star_warp_tile);
                 file.edit_map(&mut commands, MapEdit::StarWarpTile(gold_pipe_pos));
+
+                let podium_pos = file.in_bounds(file.file.podium_position);
+                file.edit_map(&mut commands, MapEdit::PodiumPosition(podium_pos));
             }
             EditObject::Camera(camera) => {
                 if !gizmo.is_active() {
