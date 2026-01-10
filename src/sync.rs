@@ -15,6 +15,7 @@ pub struct MapEdited(pub MapEdit);
 #[derive(Clone, Debug, PartialEq)]
 pub enum MapEdit {
     StartingTile(MpsVec2),
+    ShopWarpTile(usize, ListEdit<MpsVec2>),
     StarWarpTile(MpsVec2),
     PodiumPosition(MpsVec2),
     Skybox(usize, LoadedTexture),
@@ -88,6 +89,7 @@ pub struct SelectForEditing {
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum EditObject {
     StartingTile,
+    ShopWarpTile(usize),
     StarWarpTile,
     PodiumPosition,
     MapSize(Direction),
@@ -97,13 +99,23 @@ pub enum EditObject {
 }
 
 impl EditObject {
+    pub fn get_index_param(self) -> usize {
+        match self {
+            EditObject::ShopWarpTile(i) => i,
+            _ => panic!("EditObject::get_index_param called on unsupported editor"),
+        }
+    }
+
     pub fn same_type(self, other: EditObject) -> bool {
         mem::discriminant(&self) == mem::discriminant(&other)
     }
 
     pub fn update_gizmos(self, gizmos: GizmoOptions) -> GizmoOptions {
         match self {
-            Self::StartingTile | Self::StarWarpTile | Self::PodiumPosition => GizmoOptions {
+            Self::StartingTile
+            | Self::ShopWarpTile(_)
+            | Self::StarWarpTile
+            | Self::PodiumPosition => GizmoOptions {
                 gizmo_modes: gizmos.gizmo_modes.intersection(
                     GizmoMode::TranslateX | GizmoMode::TranslateZ | GizmoMode::TranslateXZ,
                 ),
@@ -168,9 +180,11 @@ impl EditObject {
 
     pub fn directly_usable(self) -> bool {
         match self {
-            Self::StartingTile | Self::StarWarpTile | Self::PodiumPosition | Self::Camera(_) => {
-                true
-            }
+            Self::StartingTile
+            | Self::ShopWarpTile(_)
+            | Self::StarWarpTile
+            | Self::PodiumPosition
+            | Self::Camera(_) => true,
             Self::MapSize(_) | Self::Tile(_) | Self::None => false,
         }
     }

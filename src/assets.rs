@@ -41,6 +41,8 @@ impl Plugin for EmbeddedAssetsPlugin {
 #[derive(Component)]
 pub struct PlayerMarker;
 #[derive(Component)]
+pub struct ShopHopBoxMarker;
+#[derive(Component)]
 pub struct GoldPipeMarker;
 #[derive(Component)]
 pub struct PodiumMarker;
@@ -57,6 +59,20 @@ pub fn item_icons(assets: &AssetServer) -> EnumMap<ShopItem, Handle<Image>> {
     enum_map! {
         item => assets.load(format!("embedded://msp_map_editor/assets/items/{item}.png")),
     }
+}
+
+pub fn shop_hop_box(assets: &AssetServer, position: Vec3) -> impl Bundle {
+    (
+        ShopHopBoxMarker,
+        Mesh3d(assets.add(Cuboid::from_length(0.5).into())),
+        MeshMaterial3d(assets.add(StandardMaterial {
+            base_color_texture: Some(assets.load(asset_path!("shop_hop_box.png"))),
+            alpha_mode: AlphaMode::Mask(0.5),
+            perceptual_roughness: 1.0,
+            ..Default::default()
+        })),
+        Transform::from_translation(position),
+    )
 }
 
 pub fn camera(assets: &AssetServer, position: Vec3, rotation: Quat) -> impl Bundle {

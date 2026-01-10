@@ -34,7 +34,7 @@ impl Default for MapFile {
     fn default() -> Self {
         Self {
             starting_tile: Default::default(),
-            shop_warp_tiles: Default::default(),
+            shop_warp_tiles: vec![MpsVec2::ZERO],
             star_warp_tile: Default::default(),
             podium_position: Default::default(),
             results_anim_cam_poses: Default::default(),

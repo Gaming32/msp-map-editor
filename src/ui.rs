@@ -5,8 +5,8 @@ use crate::load_file::{
     save_file_as,
 };
 use crate::schema::{
-    Connection, ConnectionCondition, CubeMap, MapFile, MpsMaterial, MpsTransform, PopupType,
-    ShopItem, ShopNumber, TileHeight, TileRampDirection,
+    Connection, ConnectionCondition, CubeMap, MapFile, MpsMaterial, MpsTransform, MpsVec2,
+    PopupType, ShopItem, ShopNumber, TileHeight, TileRampDirection,
 };
 use crate::sync::{
     CameraId, Direction, ListEdit, MaterialLocation, PresetView, PreviewObject,
@@ -162,7 +162,10 @@ fn on_file_loaded(
 
 fn on_map_edited(on: On<MapEdited>, mut state: ResMut<UiState>) {
     match &on.0 {
-        MapEdit::StartingTile(_) | MapEdit::StarWarpTile(_) | MapEdit::PodiumPosition(_) => {}
+        MapEdit::StartingTile(_)
+        | MapEdit::ShopWarpTile(_, _)
+        | MapEdit::StarWarpTile(_)
+        | MapEdit::PodiumPosition(_) => {}
         MapEdit::Skybox(index, image) => {
             state.waiting_textures.push(SettingImageLoadWait {
                 image: image.image.clone(),
@@ -600,6 +603,71 @@ fn draw_imgui(
             {
                 let star_warp_tile = file.in_bounds(star_warp_tile.into());
                 file.edit_map(&mut commands, MapEdit::StarWarpTile(star_warp_tile));
+            }
+
+            ui.spacing();
+
+            if let Some(icon_atlas) = state.icon_atlas_texture
+                && let Some(_token) = ui.tree_node("Shop hop tiles")
+            {
+                let mut edit = None;
+                let tiles = &file.file.shop_warp_tiles;
+                for (index, &shop_hop) in tiles.iter().enumerate() {
+                    ui.text(format!("Shop hop #{}", index + 1));
+                    ui.same_line();
+                    if ui.button(format!("Select##Shop hop {index}")) {
+                        commands.trigger(SelectForEditing {
+                            object: EditObject::ShopWarpTile(index),
+                            exclusive: true,
+                        });
+                    }
+                    ui.same_line();
+                    ui.disabled(tiles.len() < 2, || {
+                        if ui
+                            .image_button_config(
+                                format!("Remove shop hop {index}"),
+                                icon_atlas,
+                                [16.0; 2],
+                            )
+                            .uv0([0.5, 0.0])
+                            .uv1([1.0, 0.5])
+                            .build()
+                        {
+                            edit = Some(MapEdit::ShopWarpTile(index, ListEdit::Remove));
+                        }
+                    });
+
+                    let mut current_tile = shop_hop.as_array();
+                    if ui
+                        .input_scalar_n(format!("##Shop hop {index}"), &mut current_tile)
+                        .step(1)
+                        .build()
+                    {
+                        let current_tile = file.in_bounds(current_tile.into());
+                        edit = Some(MapEdit::ShopWarpTile(index, ListEdit::Set(current_tile)));
+                    }
+
+                    ui.spacing();
+                }
+                if ui.button("Add shop hop") {
+                    edit = Some(MapEdit::ShopWarpTile(
+                        tiles.len(),
+                        ListEdit::Insert(MpsVec2::ZERO),
+                    ));
+                }
+                if let Some(edit) = edit {
+                    let (index, hop) = match &edit {
+                        MapEdit::ShopWarpTile(index, hop) => (*index, *hop),
+                        _ => unreachable!(),
+                    };
+                    file.edit_map(&mut commands, edit);
+                    if matches!(hop, ListEdit::Insert(_)) {
+                        commands.trigger(SelectForEditing {
+                            object: EditObject::ShopWarpTile(index),
+                            exclusive: true,
+                        });
+                    }
+                }
             }
         }
 
@@ -1171,16 +1239,14 @@ fn shop_editor(
         });
 
         ui.same_line();
-        ui.disabled(shop_items.len() < 2, || {
-            if ui
-                .image_button_config(format!("Remove item {index}"), icon_atlas, [16.0; 2])
-                .uv0([0.5, 0.0])
-                .uv1([1.0, 0.5])
-                .build()
-            {
-                edit = Some(MapEdit::EditShop(shop, index, ListEdit::Remove));
-            }
-        });
+        if ui
+            .image_button_config(format!("Remove item {index}"), icon_atlas, [16.0; 2])
+            .uv0([0.5, 0.0])
+            .uv1([1.0, 0.5])
+            .build()
+        {
+            edit = Some(MapEdit::EditShop(shop, index, ListEdit::Remove));
+        }
     }
     if ui.button("Add item") {
         edit = Some(MapEdit::EditShop(

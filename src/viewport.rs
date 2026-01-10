@@ -1,27 +1,27 @@
 use crate::assets::{
-    camera, gold_pipe, missing_atlas, missing_skybox, player, podium, GoldPipeMarker,
-    PlayerMarker, PodiumMarker,
+    GoldPipeMarker, PlayerMarker, PodiumMarker, ShopHopBoxMarker, camera, gold_pipe, missing_atlas,
+    missing_skybox, player, podium, shop_hop_box,
 };
 use crate::culling::CullingPlugin;
 use crate::load_file::{FileLoaded, LoadedFile};
-use crate::mesh::{mesh_map, mesh_top_highlights, MapMeshMarker};
+use crate::mesh::{MapMeshMarker, mesh_map, mesh_top_highlights};
 use crate::schema::MpsVec2;
 use crate::sync::{
-    CameraId, Direction, EditObject, MapEdit, MapEdited, PresetView, PreviewObject,
+    CameraId, Direction, EditObject, ListEdit, MapEdit, MapEdited, PresetView, PreviewObject,
     SelectForEditing, TogglePreviewVisibility,
 };
 use crate::tile_range::TileRange;
 use crate::{modifier_key, shortcut_pressed};
 use bevy::asset::io::embedded::GetAssetServer;
 use bevy::asset::{LoadState, RenderAssetUsages};
+use bevy::camera::NormalizedRenderTarget;
 use bevy::camera::primitives::{Aabb, MeshAabb};
 use bevy::camera::visibility::NoFrustumCulling;
-use bevy::camera::NormalizedRenderTarget;
 use bevy::core_pipeline::Skybox;
-use bevy::input::mouse::MouseWheel;
 use bevy::input::ButtonState;
-use bevy::picking::pointer::{Location, PointerAction, PointerId, PointerInput};
+use bevy::input::mouse::MouseWheel;
 use bevy::picking::PickingSystems;
+use bevy::picking::pointer::{Location, PointerAction, PointerId, PointerInput};
 use bevy::prelude::Rect;
 use bevy::prelude::*;
 use bevy::render::render_resource::{
@@ -37,9 +37,9 @@ use image::imageops::FilterType;
 use image::{DynamicImage, GenericImageView, RgbaImage};
 use std::f32::consts::PI;
 use std::time::{Duration, Instant};
+use transform_gizmo_bevy::GizmoHotkeys;
 use transform_gizmo_bevy::config::TransformPivotPoint;
 use transform_gizmo_bevy::prelude::*;
-use transform_gizmo_bevy::GizmoHotkeys;
 
 #[derive(Resource)]
 pub struct ViewportTarget {
@@ -256,6 +256,10 @@ fn on_file_load(
         skybox.image = state.skybox.current.clone();
     }
 
+    for (index, &shop_hop) in file.file.shop_warp_tiles.iter().enumerate() {
+        create_shop_hop_box(&mut commands, &file, &assets, shop_hop, index);
+    }
+
     let gold_pipe_pos = get_gold_pipe_pos(&file, file.file.star_warp_tile);
     commands.spawn((
         gold_pipe(&assets, gold_pipe_pos),
@@ -297,6 +301,24 @@ fn on_file_load(
     commands.trigger(RemeshMap);
 }
 
+fn create_shop_hop_box(
+    commands: &mut Commands,
+    file: &LoadedFile,
+    assets: &AssetServer,
+    pos: MpsVec2,
+    index: usize,
+) {
+    let pos = get_shop_hop_pos(file, pos);
+    commands.spawn((
+        shop_hop_box(assets, pos),
+        ViewportObject {
+            editor: EditObject::ShopWarpTile(index),
+            old_pos: pos,
+            old_rot: None,
+        },
+    ));
+}
+
 #[allow(clippy::too_many_arguments)]
 fn on_map_edited(
     on: On<MapEdited>,
@@ -306,6 +328,19 @@ fn on_map_edited(
         (&mut Transform, &mut ViewportObject),
         (
             With<PlayerMarker>,
+            Without<ShopHopBoxMarker>,
+            Without<GoldPipeMarker>,
+            Without<PodiumMarker>,
+            Without<BoundsGizmo>,
+            Without<TilesGizmo>,
+            Without<TilesGizmoMesh>,
+            Without<CameraId>,
+        ),
+    >,
+    mut shop_hop_boxes: Query<
+        (Entity, &mut Transform, &mut ViewportObject),
+        (
+            With<ShopHopBoxMarker>,
             Without<GoldPipeMarker>,
             Without<PodiumMarker>,
             Without<BoundsGizmo>,
@@ -349,7 +384,8 @@ fn on_map_edited(
     >,
     mut tiles_gizmo_child: Query<&mut Transform, (With<TilesGizmoMesh>, Without<CameraId>)>,
     camera_gizmo: Query<(&mut Transform, &mut ViewportObject), With<CameraId>>,
-    mut textures: ResMut<ViewportState>,
+    mut state: ResMut<ViewportState>,
+    assets: Res<AssetServer>,
 ) {
     let mut change_player_pos = false;
     let mut change_gold_pipe_pos = false;
@@ -360,6 +396,39 @@ fn on_map_edited(
         MapEdit::StartingTile(_) => {
             change_player_pos = true;
         }
+        MapEdit::ShopWarpTile(index, edit) => {
+            let mut boxes = shop_hop_boxes.iter_mut()
+                .sort_by_key::<&ViewportObject, _>(|obj| obj.editor.get_index_param())
+                .collect::<Vec<_>>();
+            match *edit {
+                ListEdit::Set(value) => {
+                    let (_, transform, object) = &mut boxes[*index];
+                    let pos = get_shop_hop_pos(&file, value);
+                    transform.translation = pos;
+                    object.old_pos = pos;
+                }
+                ListEdit::MoveUp => {
+                    boxes[*index - 1].2.editor = EditObject::ShopWarpTile(*index);
+                    boxes[*index].2.editor = EditObject::ShopWarpTile(*index - 1);
+                }
+                ListEdit::MoveDown => {
+                    boxes[*index].2.editor = EditObject::ShopWarpTile(*index + 1);
+                    boxes[*index + 1].2.editor = EditObject::ShopWarpTile(*index);
+                }
+                ListEdit::Remove => {
+                    commands.entity(boxes[*index].0).despawn();
+                    for (i, (_, _, object)) in boxes.iter_mut().enumerate().skip(index + 1) {
+                        object.editor = EditObject::ShopWarpTile(i - 1);
+                    }
+                }
+                ListEdit::Insert(value) => {
+                    for (i, (_, _, object)) in boxes.iter_mut().enumerate().skip(*index) {
+                        object.editor = EditObject::ShopWarpTile(i + 1);
+                    }
+                    create_shop_hop_box(&mut commands, &file, &assets, value, *index);
+                }
+            }
+        }
         MapEdit::StarWarpTile(_) => {
             change_gold_pipe_pos = true;
         }
@@ -367,10 +436,10 @@ fn on_map_edited(
             change_podium_pos = true;
         }
         MapEdit::Skybox(_, _) => {
-            textures.skybox.outdated = true;
+            state.skybox.outdated = true;
         }
         MapEdit::Atlas(_) => {
-            textures.atlas.outdated = true;
+            state.atlas.outdated = true;
         }
         MapEdit::ExpandMap(_, _) | MapEdit::ShrinkMap(_) => {
             commands.trigger(RemeshMap);
@@ -403,6 +472,11 @@ fn on_map_edited(
             change_player_pos = true;
             change_gold_pipe_pos = true;
             change_tiles_gizmos = true;
+            for (_, mut shop_hop, mut viewport_obj) in shop_hop_boxes {
+                let index = viewport_obj.editor.get_index_param();
+                shop_hop.translation = get_shop_hop_pos(&file, file.file.shop_warp_tiles[index]);
+                viewport_obj.old_pos = shop_hop.translation;
+            }
         }
         MapEdit::ChangeConnection(_, _, _) | MapEdit::ChangeMaterial(_, _, _) => {
             commands.trigger(RemeshMap);
@@ -487,11 +561,12 @@ fn on_select_for_editing(
     current_gizmos: Query<(Entity, &GizmoTarget)>,
     temporary_gizmos: Query<Entity, With<TemporaryViewportObject>>,
     player: Query<Entity, With<PlayerMarker>>,
+    shop_hop_box: Query<(Entity, &ViewportObject), With<ShopHopBoxMarker>>,
     gold_pipe: Query<(Entity, &mut Visibility), (With<GoldPipeMarker>, Without<PodiumMarker>)>,
     podium: Query<(Entity, &mut Visibility), With<PodiumMarker>>,
     mut tiles_gizmo: Query<
         (&mut Transform, &mut TilesGizmo, &mut ViewportObject),
-        Without<TilesGizmoMesh>,
+        (Without<TilesGizmoMesh>, Without<ShopHopBoxMarker>),
     >,
     mut tiles_gizmo_children: Query<(&mut Transform, &mut TilesGizmoMesh)>,
     cameras: Query<(Entity, &CameraId)>,
@@ -522,6 +597,13 @@ fn on_select_for_editing(
         EditObject::StartingTile => {
             for player in player {
                 commands.entity(player).insert(GizmoTarget::default());
+            }
+        }
+        EditObject::ShopWarpTile(index) => {
+            for (shop_hop, object) in shop_hop_box.iter() {
+                if object.editor.get_index_param() == index {
+                    commands.entity(shop_hop).insert(GizmoTarget::default());
+                }
             }
         }
         EditObject::StarWarpTile => {
@@ -641,6 +723,10 @@ fn get_tile_gizmo_mesh_offset(range: TileRange, file: &LoadedFile) -> Vec3 {
 
 fn get_player_pos(file: &LoadedFile, pos: MpsVec2) -> Vec3 {
     get_height_offset_pos(file, pos, 0.375)
+}
+
+fn get_shop_hop_pos(file: &LoadedFile, pos: MpsVec2) -> Vec3 {
+    get_height_offset_pos(file, pos, 1.25)
 }
 
 fn get_gold_pipe_pos(file: &LoadedFile, pos: MpsVec2) -> Vec3 {
@@ -949,6 +1035,22 @@ fn sync_from_gizmos(
                     transform.translation = get_player_pos(&file, in_bounds_pos);
                 } else {
                     file.edit_map(&mut commands, MapEdit::StartingTile(in_bounds_pos));
+                    object.old_pos = pos;
+                }
+            }
+            EditObject::ShopWarpTile(index) => {
+                let pos = transform.translation;
+                if pos == object.old_pos {
+                    continue;
+                }
+                let in_bounds_pos = file.in_bounds(MpsVec2::new(pos.x as i32, pos.z as i32));
+                if gizmo.is_active() {
+                    transform.translation = get_shop_hop_pos(&file, in_bounds_pos);
+                } else {
+                    file.edit_map(
+                        &mut commands,
+                        MapEdit::ShopWarpTile(index, ListEdit::Set(in_bounds_pos)),
+                    );
                     object.old_pos = pos;
                 }
             }

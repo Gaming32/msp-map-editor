@@ -68,6 +68,9 @@ impl LoadedFile {
 
         let reversed = match &edit {
             MapEdit::StartingTile(_) => MapEdit::StartingTile(self.file.starting_tile),
+            MapEdit::ShopWarpTile(index, edit) => {
+                MapEdit::ShopWarpTile(*index, edit.reverse(|| self.file.shop_warp_tiles[*index]))
+            }
             MapEdit::StarWarpTile(_) => MapEdit::StarWarpTile(self.file.star_warp_tile),
             MapEdit::PodiumPosition(_) => MapEdit::PodiumPosition(self.file.podium_position),
             MapEdit::Skybox(index, _) => {
@@ -261,6 +264,9 @@ impl LoadedFile {
 
         match &edit {
             MapEdit::StartingTile(pos) => self.file.starting_tile = *pos,
+            MapEdit::ShopWarpTile(index, edit) => {
+                edit.apply(*index, &mut self.file.shop_warp_tiles)
+            }
             MapEdit::StarWarpTile(pos) => self.file.star_warp_tile = *pos,
             MapEdit::PodiumPosition(pos) => self.file.podium_position = *pos,
             MapEdit::Skybox(index, image) => {
