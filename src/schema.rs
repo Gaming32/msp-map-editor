@@ -515,7 +515,7 @@ pub enum Connection {
 
 impl Default for Connection {
     fn default() -> Self {
-        Self::Unconditional(false)
+        Self::Unconditional(true)
     }
 }
 
