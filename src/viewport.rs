@@ -1,10 +1,10 @@
 use crate::assets::{
-    GoldPipeMarker, PlayerMarker, PodiumMarker, camera, gold_pipe, missing_atlas, missing_skybox,
-    player, podium,
+    camera, gold_pipe, missing_atlas, missing_skybox, player, podium, GoldPipeMarker,
+    PlayerMarker, PodiumMarker,
 };
 use crate::culling::CullingPlugin;
 use crate::load_file::{FileLoaded, LoadedFile};
-use crate::mesh::{MapMeshMarker, mesh_map, mesh_top_highlights};
+use crate::mesh::{mesh_map, mesh_top_highlights, MapMeshMarker};
 use crate::schema::MpsVec2;
 use crate::sync::{
     CameraId, Direction, EditObject, MapEdit, MapEdited, PresetView, PreviewObject,
@@ -14,14 +14,14 @@ use crate::tile_range::TileRange;
 use crate::{modifier_key, shortcut_pressed};
 use bevy::asset::io::embedded::GetAssetServer;
 use bevy::asset::{LoadState, RenderAssetUsages};
-use bevy::camera::NormalizedRenderTarget;
 use bevy::camera::primitives::{Aabb, MeshAabb};
 use bevy::camera::visibility::NoFrustumCulling;
+use bevy::camera::NormalizedRenderTarget;
 use bevy::core_pipeline::Skybox;
-use bevy::input::ButtonState;
 use bevy::input::mouse::MouseWheel;
-use bevy::picking::PickingSystems;
+use bevy::input::ButtonState;
 use bevy::picking::pointer::{Location, PointerAction, PointerId, PointerInput};
+use bevy::picking::PickingSystems;
 use bevy::prelude::Rect;
 use bevy::prelude::*;
 use bevy::render::render_resource::{
@@ -37,9 +37,9 @@ use image::imageops::FilterType;
 use image::{DynamicImage, GenericImageView, RgbaImage};
 use std::f32::consts::PI;
 use std::time::{Duration, Instant};
-use transform_gizmo_bevy::GizmoHotkeys;
 use transform_gizmo_bevy::config::TransformPivotPoint;
 use transform_gizmo_bevy::prelude::*;
+use transform_gizmo_bevy::GizmoHotkeys;
 
 #[derive(Resource)]
 pub struct ViewportTarget {
@@ -691,8 +691,7 @@ fn on_pointer_click(
     };
     commands.trigger(SelectForEditing {
         object: editor,
-        exclusive: editor.exclusive_only()
-            || !keys.any_pressed(modifier_key!(Shift))
+        exclusive: !keys.any_pressed(modifier_key!(Shift))
             || current_gizmos.iter().any(|x| !editor.same_type(x.editor)),
     });
 }

@@ -166,17 +166,6 @@ impl EditObject {
         }
     }
 
-    pub fn exclusive_only(self) -> bool {
-        match self {
-            Self::StartingTile
-            | Self::StarWarpTile
-            | Self::PodiumPosition
-            | Self::Camera(_)
-            | Self::None => true,
-            Self::MapSize(_) | Self::Tile(_) => false,
-        }
-    }
-
     pub fn directly_usable(self) -> bool {
         match self {
             Self::StartingTile | Self::StarWarpTile | Self::PodiumPosition | Self::Camera(_) => {
