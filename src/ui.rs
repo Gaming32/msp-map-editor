@@ -10,7 +10,7 @@ use crate::schema::{
 };
 use crate::sync::{
     CameraId, Direction, ListEdit, MaterialLocation, PresetView, PreviewObject,
-    TogglePreviewVisibility,
+    PreviewResultsAnimation, TogglePreviewVisibility,
 };
 use crate::sync::{EditObject, MapEdit, MapEdited, SelectForEditing};
 use crate::tile_range::TileRange;
@@ -32,7 +32,6 @@ use itertools::Itertools;
 use monostate::MustBeBool;
 use std::borrow::Cow;
 use std::mem;
-use std::time::Duration;
 use strum::VariantArray;
 
 pub struct MapEditorUi;
@@ -45,7 +44,7 @@ impl Plugin for MapEditorUi {
         }
 
         app.insert_resource(UiState {
-            free_timer: Timer::new(Duration::from_millis(500), TimerMode::Repeating),
+            free_timer: Timer::from_seconds(0.5, TimerMode::Repeating),
             unset_texture_icon: unset_texture_icon(app.get_asset_server()),
             icon_atlas_handle: icons_atlas(app.get_asset_server()),
             item_handles: item_icons(app.get_asset_server()),
@@ -165,7 +164,8 @@ fn on_map_edited(on: On<MapEdited>, mut state: ResMut<UiState>) {
         MapEdit::StartingTile(_)
         | MapEdit::ShopWarpTile(_, _)
         | MapEdit::StarWarpTile(_)
-        | MapEdit::PodiumPosition(_) => {}
+        | MapEdit::PodiumPosition(_)
+        | MapEdit::ResultsCamera(_, _) => {}
         MapEdit::Skybox(index, image) => {
             state.waiting_textures.push(SettingImageLoadWait {
                 image: image.image.clone(),
@@ -608,12 +608,16 @@ fn draw_imgui(
             ui.spacing();
 
             if let Some(icon_atlas) = state.icon_atlas_texture
-                && let Some(_token) = ui.tree_node("Shop hop tiles")
+                && let Some(_token) = ui
+                    .tree_node_config("Shop hop tiles")
+                    .tree_push_on_open(false)
+                    .push()
             {
                 let mut edit = None;
                 let tiles = &file.file.shop_warp_tiles;
                 for (index, &shop_hop) in tiles.iter().enumerate() {
                     ui.text(format!("Shop hop #{}", index + 1));
+
                     ui.same_line();
                     if ui.button(format!("Select##Shop hop {index}")) {
                         commands.trigger(SelectForEditing {
@@ -621,8 +625,9 @@ fn draw_imgui(
                             exclusive: true,
                         });
                     }
+
                     ui.same_line();
-                    ui.disabled(tiles.len() < 2, || {
+                    ui.disabled(tiles.len() <= 1, || {
                         if ui
                             .image_button_config(
                                 format!("Remove shop hop {index}"),
@@ -701,6 +706,134 @@ fn draw_imgui(
             {
                 let podium_pos = file.in_bounds(podium_pos.into());
                 file.edit_map(&mut commands, MapEdit::PodiumPosition(podium_pos));
+            }
+
+            ui.spacing();
+
+            if let Some(icon_atlas) = state.icon_atlas_texture
+                && let Some(_token) = ui
+                    .tree_node_config("Results animation")
+                    .tree_push_on_open(false)
+                    .push()
+            {
+                let poses = &file.file.results_anim_cam_poses;
+
+                let mut edit = None;
+                if ui.button("Preview") {
+                    commands.trigger(PreviewResultsAnimation);
+                }
+                ui.same_line();
+                if ui.button("Add camera") {
+                    edit = Some(MapEdit::ResultsCamera(0, ListEdit::Insert(poses[0])));
+                }
+                ui.same_line();
+                if ui.button("Select all") {
+                    commands.trigger(SelectForEditing {
+                        object: EditObject::ResultsCamera(0),
+                        exclusive: true,
+                    });
+                    for index in 1..poses.len() {
+                        commands.trigger(SelectForEditing {
+                            object: EditObject::ResultsCamera(index),
+                            exclusive: false,
+                        });
+                    }
+                }
+
+                for (index, &pos) in poses.iter().enumerate() {
+                    ui.spacing();
+
+                    ui.text(format!("Camera #{}", index + 1));
+                    ui.same_line();
+                    if ui.button(format!("Select##Results camera {index}")) {
+                        commands.trigger(SelectForEditing {
+                            object: EditObject::ResultsCamera(index),
+                            exclusive: true,
+                        });
+                    }
+
+                    ui.same_line();
+                    ui.disabled(index == 0, || {
+                        if ui
+                            .image_button_config(
+                                format!("Move camera up {index}"),
+                                icon_atlas,
+                                [16.0; 2],
+                            )
+                            .uv0([0.0, 0.5])
+                            .uv1([0.5, 1.0])
+                            .build()
+                        {
+                            edit = Some(MapEdit::ResultsCamera(index, ListEdit::MoveUp));
+                        }
+                    });
+
+                    ui.same_line();
+                    ui.disabled(index >= poses.len() - 1, || {
+                        if ui
+                            .image_button_config(
+                                format!("Move segment down {index}"),
+                                icon_atlas,
+                                [16.0; 2],
+                            )
+                            .uv0([0.5, 0.5])
+                            .uv1([1.0, 1.0])
+                            .build()
+                        {
+                            edit = Some(MapEdit::ResultsCamera(index, ListEdit::MoveDown));
+                        }
+                    });
+
+                    ui.same_line();
+                    ui.disabled(poses.len() <= 3, || {
+                        if ui
+                            .image_button_config(
+                                format!("Remove results camera {index}"),
+                                icon_atlas,
+                                [16.0; 2],
+                            )
+                            .uv0([0.5, 0.0])
+                            .uv1([1.0, 0.5])
+                            .build()
+                        {
+                            edit = Some(MapEdit::ResultsCamera(index, ListEdit::Remove));
+                        }
+                    });
+
+                    let mut current_pos = pos.as_array();
+                    if ui
+                        .input_scalar_n(format!("##Results camera {index}"), &mut current_pos)
+                        .display_format("%.2f")
+                        .build()
+                    {
+                        edit = Some(MapEdit::ResultsCamera(
+                            index,
+                            ListEdit::Set(current_pos.into()),
+                        ));
+                    }
+                }
+
+                ui.spacing();
+                if ui.button("Add camera##Below") {
+                    edit = Some(MapEdit::ResultsCamera(
+                        poses.len(),
+                        ListEdit::Insert(poses[poses.len() - 1]),
+                    ));
+                }
+
+                if let Some(edit) = edit {
+                    let (index, camera) = match &edit {
+                        MapEdit::ResultsCamera(index, hop) => (*index, *hop),
+                        _ => unreachable!(),
+                    };
+                    file.edit_map(&mut commands, edit);
+                    if matches!(camera, ListEdit::Insert(_)) {
+                        commands.trigger(SelectForEditing {
+                            object: EditObject::ResultsCamera(index),
+                            exclusive: true,
+                        });
+                    }
+                }
             }
         }
     });
@@ -942,7 +1075,7 @@ fn draw_imgui(
                     });
 
                     ui.same_line();
-                    ui.disabled(min_segments < 2, || {
+                    ui.disabled(min_segments <= 1, || {
                         if ui
                             .image_button_config(format!("Remove segment {index}"), icon_atlas, [16.0; 2])
                             .uv0([0.5, 0.0])

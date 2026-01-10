@@ -18,6 +18,7 @@ pub enum MapEdit {
     ShopWarpTile(usize, ListEdit<MpsVec2>),
     StarWarpTile(MpsVec2),
     PodiumPosition(MpsVec2),
+    ResultsCamera(usize, ListEdit<MpsVec3>),
     Skybox(usize, LoadedTexture),
     Atlas(LoadedTexture),
     ExpandMap(Direction, Option<Vec<TileData>>),
@@ -92,8 +93,9 @@ pub enum EditObject {
     ShopWarpTile(usize),
     StarWarpTile,
     PodiumPosition,
-    MapSize(Direction),
+    ResultsCamera(usize),
     Camera(CameraId),
+    MapSize(Direction),
     Tile(MpsVec2),
     None,
 }
@@ -101,7 +103,7 @@ pub enum EditObject {
 impl EditObject {
     pub fn get_index_param(self) -> usize {
         match self {
-            EditObject::ShopWarpTile(i) => i,
+            EditObject::ShopWarpTile(index) | EditObject::ResultsCamera(index) => index,
             _ => panic!("EditObject::get_index_param called on unsupported editor"),
         }
     }
@@ -127,6 +129,14 @@ impl EditObject {
                     enable_accurate_mode: None,
                     ..gizmos.hotkeys.unwrap_or_default()
                 }),
+                ..gizmos
+            },
+            Self::ResultsCamera(_) => GizmoOptions {
+                gizmo_modes: gizmos.gizmo_modes.intersection(GizmoMode::all_translate()),
+                snapping: gizmos.snapping,
+                snap_distance: gizmos.snap_angle.max(0.5),
+                group_targets: gizmos.group_targets,
+                hotkeys: gizmos.hotkeys,
                 ..gizmos
             },
             Self::MapSize(_) => GizmoOptions {
@@ -184,6 +194,7 @@ impl EditObject {
             | Self::ShopWarpTile(_)
             | Self::StarWarpTile
             | Self::PodiumPosition
+            | Self::ResultsCamera(_)
             | Self::Camera(_) => true,
             Self::MapSize(_) | Self::Tile(_) | Self::None => false,
         }
@@ -227,3 +238,6 @@ pub enum PreviewObject {
     GoldPipe,
     Podium,
 }
+
+#[derive(Event, Copy, Clone, Debug)]
+pub struct PreviewResultsAnimation;

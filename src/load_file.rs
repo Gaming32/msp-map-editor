@@ -73,6 +73,10 @@ impl LoadedFile {
             }
             MapEdit::StarWarpTile(_) => MapEdit::StarWarpTile(self.file.star_warp_tile),
             MapEdit::PodiumPosition(_) => MapEdit::PodiumPosition(self.file.podium_position),
+            MapEdit::ResultsCamera(index, edit) => MapEdit::ResultsCamera(
+                *index,
+                edit.reverse(|| self.file.results_anim_cam_poses[*index]),
+            ),
             MapEdit::Skybox(index, _) => {
                 MapEdit::Skybox(*index, self.loaded_textures.skybox[*index].clone())
             }
@@ -163,6 +167,8 @@ impl LoadedFile {
         };
         if edit == reversed {
             let is_equal_reverse = match &reversed {
+                MapEdit::ShopWarpTile(_, edit) => edit.is_self_opposite(),
+                MapEdit::ResultsCamera(_, edit) => edit.is_self_opposite(),
                 MapEdit::EditShop(_, _, edit) => edit.is_self_opposite(),
                 MapEdit::ChangeMaterial(_, _, edits) => {
                     edits.iter().all(ListEdit::is_self_opposite)
@@ -269,6 +275,9 @@ impl LoadedFile {
             }
             MapEdit::StarWarpTile(pos) => self.file.star_warp_tile = *pos,
             MapEdit::PodiumPosition(pos) => self.file.podium_position = *pos,
+            MapEdit::ResultsCamera(index, edit) => {
+                edit.apply(*index, &mut self.file.results_anim_cam_poses)
+            }
             MapEdit::Skybox(index, image) => {
                 self.loaded_textures.skybox[*index] = image.clone();
             }

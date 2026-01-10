@@ -1,7 +1,7 @@
 use crate::sync::{Direction, MaterialLocation};
 use crate::tile_range::TileRange;
 use crate::utils::grid_as_vec_vec;
-use bevy::prelude::{EulerRot, Transform};
+use bevy::prelude::{EulerRot, FloatExt, Transform};
 use bevy_math::{Quat, Vec3};
 use enum_map::{Enum, EnumMap};
 use grid::{Grid, grid};
@@ -37,7 +37,7 @@ impl Default for MapFile {
             shop_warp_tiles: vec![MpsVec2::ZERO],
             star_warp_tile: Default::default(),
             podium_position: Default::default(),
-            results_anim_cam_poses: Default::default(),
+            results_anim_cam_poses: vec![MpsVec3::ZERO; 3],
             tutorial_star: Default::default(),
             tutorial_shop: Default::default(),
             textures: Default::default(),
@@ -166,12 +166,22 @@ pub struct MpsVec3 {
 }
 
 impl MpsVec3 {
+    pub const ZERO: MpsVec3 = MpsVec3::new(0.0, 0.0, 0.0);
+
     pub const fn new(x: f64, y: f64, z: f64) -> Self {
         Self { x, y, z }
     }
 
     pub const fn as_array(self) -> [f64; 3] {
         [self.x, self.y, self.z]
+    }
+
+    pub fn lerp(self, other: Self, t: f64) -> Self {
+        Self {
+            x: self.x.lerp(other.x, t),
+            y: self.y.lerp(other.y, t),
+            z: self.z.lerp(other.z, t),
+        }
     }
 }
 

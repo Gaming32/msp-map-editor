@@ -5,10 +5,10 @@ use crate::assets::{
 use crate::culling::CullingPlugin;
 use crate::load_file::{FileLoaded, LoadedFile};
 use crate::mesh::{MapMeshMarker, mesh_map, mesh_top_highlights};
-use crate::schema::MpsVec2;
+use crate::schema::{MpsVec2, MpsVec3};
 use crate::sync::{
     CameraId, Direction, EditObject, ListEdit, MapEdit, MapEdited, PresetView, PreviewObject,
-    SelectForEditing, TogglePreviewVisibility,
+    PreviewResultsAnimation, SelectForEditing, TogglePreviewVisibility,
 };
 use crate::tile_range::TileRange;
 use crate::{modifier_key, shortcut_pressed};
@@ -30,11 +30,12 @@ use bevy::render::render_resource::{
 };
 use bevy::window::WindowEvent;
 use bevy_easings::{CustomComponentEase, EaseFunction, EasingType};
-use bevy_map_camera::controller::CameraControllerButtons;
+use bevy_map_camera::controller::{CameraControllerButtons, ControlMessage};
 use bevy_map_camera::{CameraControllerSettings, LookTransform, MapCamera, MapCameraPlugin};
 use bevy_math::bounding::{Aabb3d, BoundingVolume};
 use image::imageops::FilterType;
 use image::{DynamicImage, GenericImageView, RgbaImage};
+use itertools::Itertools;
 use std::f32::consts::PI;
 use std::time::{Duration, Instant};
 use transform_gizmo_bevy::GizmoHotkeys;
@@ -101,6 +102,7 @@ impl Plugin for ViewportPlugin {
         .add_observer(on_pointer_click)
         .add_observer(on_preset_view)
         .add_observer(on_toggle_preview_visibility)
+        .add_observer(on_preview_results_animation)
         .add_systems(
             Update,
             (
@@ -110,6 +112,8 @@ impl Plugin for ViewportPlugin {
                 sync_from_gizmos,
                 update_lights,
                 update_textures,
+                update_results_preview,
+                update_results_cameras,
             ),
         );
     }
@@ -143,6 +147,7 @@ fn setup_viewport(
     viewport_target: Res<ViewportTarget>,
     textures: Res<ViewportState>,
     mut ambient_light: ResMut<AmbientLight>,
+    mut gizmos: ResMut<GizmoConfigStore>,
 ) {
     commands.insert_resource(CameraControllerSettings {
         touch_enabled: false, // XXX: touch pick events are not implemented, so touch wouldn't work anyway. Maybe I should fix this.
@@ -194,6 +199,8 @@ fn setup_viewport(
         },
     ));
     ambient_light.brightness = 160.0;
+
+    gizmos.config_mut::<DefaultGizmoConfigGroup>().0.line.width = 1.0;
 }
 
 #[derive(Component)]
@@ -214,6 +221,10 @@ struct BoundsGizmo(Direction);
 struct TilesGizmo(TileRange);
 #[derive(Component)]
 struct TilesGizmoMesh(TileRange);
+#[derive(Component)]
+struct ResultsAnimationPreview(Timer);
+#[derive(Component)]
+struct ResultsCameraMarker;
 
 #[derive(Event)]
 struct RemeshMap;
@@ -283,6 +294,10 @@ fn on_file_load(
         VisibilityToggleable(PreviewObject::Podium),
     ));
 
+    for (index, &cam_pos) in file.file.results_anim_cam_poses.iter().enumerate() {
+        create_results_camera(&mut commands, &assets, cam_pos, podium_pos + Vec3::Y, index);
+    }
+
     for (transform, id) in [
         (file.file.tutorial_star, CameraId::StarTutorial),
         (file.file.tutorial_shop, CameraId::ShopTutorial),
@@ -319,6 +334,25 @@ fn create_shop_hop_box(
     ));
 }
 
+fn create_results_camera(
+    commands: &mut Commands,
+    assets: &AssetServer,
+    cam_pos: MpsVec3,
+    target_pos: Vec3,
+    index: usize,
+) {
+    let cam_pos = Vec3::from(cam_pos) + target_pos;
+    commands.spawn((
+        camera(assets, cam_pos, Quat::IDENTITY),
+        ViewportObject {
+            editor: EditObject::ResultsCamera(index),
+            old_pos: cam_pos,
+            old_rot: None,
+        },
+        ResultsCameraMarker,
+    ));
+}
+
 #[allow(clippy::too_many_arguments)]
 fn on_map_edited(
     on: On<MapEdited>,
@@ -331,6 +365,7 @@ fn on_map_edited(
             Without<ShopHopBoxMarker>,
             Without<GoldPipeMarker>,
             Without<PodiumMarker>,
+            Without<ResultsCameraMarker>,
             Without<BoundsGizmo>,
             Without<TilesGizmo>,
             Without<TilesGizmoMesh>,
@@ -343,6 +378,7 @@ fn on_map_edited(
             With<ShopHopBoxMarker>,
             Without<GoldPipeMarker>,
             Without<PodiumMarker>,
+            Without<ResultsCameraMarker>,
             Without<BoundsGizmo>,
             Without<TilesGizmo>,
             Without<TilesGizmoMesh>,
@@ -354,6 +390,7 @@ fn on_map_edited(
         (
             With<GoldPipeMarker>,
             Without<PodiumMarker>,
+            Without<ResultsCameraMarker>,
             Without<BoundsGizmo>,
             Without<TilesGizmo>,
             Without<TilesGizmoMesh>,
@@ -364,6 +401,17 @@ fn on_map_edited(
         (&mut Transform, &mut ViewportObject),
         (
             With<PodiumMarker>,
+            Without<ResultsCameraMarker>,
+            Without<BoundsGizmo>,
+            Without<TilesGizmo>,
+            Without<TilesGizmoMesh>,
+            Without<CameraId>,
+        ),
+    >,
+    mut results_cameras: Query<
+        (Entity, &mut Transform, &mut ViewportObject),
+        (
+            With<ResultsCameraMarker>,
             Without<BoundsGizmo>,
             Without<TilesGizmo>,
             Without<TilesGizmoMesh>,
@@ -399,7 +447,7 @@ fn on_map_edited(
         MapEdit::ShopWarpTile(index, edit) => {
             let mut boxes = shop_hop_boxes.iter_mut()
                 .sort_by_key::<&ViewportObject, _>(|obj| obj.editor.get_index_param())
-                .collect::<Vec<_>>();
+                .collect_vec();
             match *edit {
                 ListEdit::Set(value) => {
                     let (_, transform, object) = &mut boxes[*index];
@@ -432,8 +480,48 @@ fn on_map_edited(
         MapEdit::StarWarpTile(_) => {
             change_gold_pipe_pos = true;
         }
-        MapEdit::PodiumPosition(_) => {
+        MapEdit::PodiumPosition(pos) => {
             change_podium_pos = true;
+            let cam_target = get_podium_pos(&file, *pos) + Vec3::Y;
+            for (_, mut transform, mut object) in results_cameras {
+                let target_pos = Vec3::from(file.file.results_anim_cam_poses[object.editor.get_index_param()]) + cam_target;
+                transform.translation = target_pos;
+                object.old_pos = target_pos;
+            }
+        }
+        MapEdit::ResultsCamera(index, edit) => {
+            let cam_target = get_podium_pos(&file, file.file.podium_position) + Vec3::Y;
+            let mut cameras = results_cameras.iter_mut()
+                .sort_by_key::<&ViewportObject, _>(|obj| obj.editor.get_index_param())
+                .collect_vec();
+            match *edit {
+                ListEdit::Set(value) => {
+                    let (_, transform, object) = &mut cameras[*index];
+                    let pos = Vec3::from(value) + cam_target;
+                    transform.translation = pos;
+                    object.old_pos = pos;
+                }
+                ListEdit::MoveUp => {
+                    cameras[*index - 1].2.editor = EditObject::ResultsCamera(*index);
+                    cameras[*index].2.editor = EditObject::ResultsCamera(*index - 1);
+                }
+                ListEdit::MoveDown => {
+                    cameras[*index].2.editor = EditObject::ResultsCamera(*index + 1);
+                    cameras[*index + 1].2.editor = EditObject::ResultsCamera(*index);
+                }
+                ListEdit::Remove => {
+                    commands.entity(cameras[*index].0).despawn();
+                    for (i, (_, _, object)) in cameras.iter_mut().enumerate().skip(index + 1) {
+                        object.editor = EditObject::ResultsCamera(i - 1);
+                    }
+                }
+                ListEdit::Insert(value) => {
+                    for (i, (_, _, object)) in cameras.iter_mut().enumerate().skip(*index) {
+                        object.editor = EditObject::ResultsCamera(i + 1);
+                    }
+                    create_results_camera(&mut commands, &assets, value, cam_target, *index);
+                }
+            }
         }
         MapEdit::Skybox(_, _) => {
             state.skybox.outdated = true;
@@ -564,9 +652,14 @@ fn on_select_for_editing(
     shop_hop_box: Query<(Entity, &ViewportObject), With<ShopHopBoxMarker>>,
     gold_pipe: Query<(Entity, &mut Visibility), (With<GoldPipeMarker>, Without<PodiumMarker>)>,
     podium: Query<(Entity, &mut Visibility), With<PodiumMarker>>,
+    results_camera: Query<(Entity, &ViewportObject), With<ResultsCameraMarker>>,
     mut tiles_gizmo: Query<
         (&mut Transform, &mut TilesGizmo, &mut ViewportObject),
-        (Without<TilesGizmoMesh>, Without<ShopHopBoxMarker>),
+        (
+            Without<TilesGizmoMesh>,
+            Without<ShopHopBoxMarker>,
+            Without<ResultsCameraMarker>,
+        ),
     >,
     mut tiles_gizmo_children: Query<(&mut Transform, &mut TilesGizmoMesh)>,
     cameras: Query<(Entity, &CameraId)>,
@@ -600,7 +693,7 @@ fn on_select_for_editing(
             }
         }
         EditObject::ShopWarpTile(index) => {
-            for (shop_hop, object) in shop_hop_box.iter() {
+            for (shop_hop, object) in shop_hop_box {
                 if object.editor.get_index_param() == index {
                     commands.entity(shop_hop).insert(GizmoTarget::default());
                 }
@@ -616,6 +709,13 @@ fn on_select_for_editing(
             for (podium, mut visible) in podium {
                 *visible = Visibility::Visible;
                 commands.entity(podium).insert(GizmoTarget::default());
+            }
+        }
+        EditObject::ResultsCamera(index) => {
+            for (camera, object) in results_camera {
+                if object.editor.get_index_param() == index {
+                    commands.entity(camera).insert(GizmoTarget::default());
+                }
             }
         }
         EditObject::MapSize(side) => {
@@ -935,6 +1035,22 @@ fn on_toggle_preview_visibility(
     }
 }
 
+fn on_preview_results_animation(
+    _: On<PreviewResultsAnimation>,
+    mut commands: Commands,
+    camera: Query<Entity, With<Camera>>,
+) {
+    let Ok(camera) = camera.single_inner() else {
+        return;
+    };
+    commands
+        .entity(camera)
+        .insert(ResultsAnimationPreview(Timer::from_seconds(
+            10.0,
+            TimerMode::Once,
+        )));
+}
+
 fn get_selected_entity_aabb(
     entity: Entity,
     world: &World,
@@ -1078,6 +1194,19 @@ fn sync_from_gizmos(
                 } else {
                     file.edit_map(&mut commands, MapEdit::PodiumPosition(in_bounds_pos));
                     object.old_pos = pos;
+                }
+            }
+            EditObject::ResultsCamera(index) => {
+                if !gizmo.is_active() {
+                    let pos = transform.translation;
+                    let target_pos = get_podium_pos(&file, file.file.podium_position) + Vec3::Y;
+                    if pos != object.old_pos {
+                        file.edit_map(
+                            &mut commands,
+                            MapEdit::ResultsCamera(index, ListEdit::Set((pos - target_pos).into())),
+                        );
+                        object.old_pos = pos;
+                    }
                 }
             }
             EditObject::MapSize(side) => {
@@ -1297,6 +1426,80 @@ fn update_textures(
             .expect("atlas_material should exist")
             .base_color_texture = Some(textures.atlas.current.clone());
         textures.atlas.outdated = false;
+    }
+}
+
+fn update_results_preview(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut controls: MessageReader<ControlMessage>,
+    camera: Query<(Entity, &mut LookTransform, &mut ResultsAnimationPreview)>,
+    file: Res<LoadedFile>,
+) {
+    if !controls.is_empty() {
+        controls.clear();
+        for (entity, _, _) in camera {
+            commands.entity(entity).remove::<ResultsAnimationPreview>();
+        }
+        return;
+    }
+
+    let poses = &file.file.results_anim_cam_poses;
+    let target_pos = get_podium_pos(&file, file.file.podium_position) + Vec3::Y;
+    for (entity, mut transform, mut preview) in camera {
+        preview.0.tick(time.delta());
+        if preview.0.is_finished() {
+            commands.entity(entity).remove::<ResultsAnimationPreview>();
+            continue;
+        }
+
+        let base_index = preview.0.fraction() * (poses.len() - 2) as f32;
+        let i = base_index as usize + 1;
+        let t = (base_index % 1.0) as f64;
+
+        let line1 = poses[i - 1].lerp(poses[i], 0.5).lerp(poses[i], t);
+        let line2 = poses[i].lerp(poses[i + 1].lerp(poses[i], 0.5), t);
+        let mut line = Vec3::from(line1.lerp(line2, t));
+
+        if line == Vec3::ZERO {
+            line = Vec3::Z * 0.001;
+        }
+
+        let new_transform = LookTransform {
+            eye: target_pos + line,
+            target: target_pos,
+            up: Vec3::Y,
+        };
+        if line.y > 0.001 {
+            *transform = compute_grounded_look_transform(new_transform);
+        } else {
+            *transform = new_transform;
+        }
+    }
+}
+
+fn update_results_cameras(
+    mut cameras: Query<(&mut Transform, &ViewportObject), With<ResultsCameraMarker>>,
+    mut gizmos: Gizmos,
+    file: Res<LoadedFile>,
+) {
+    let cameras_poses = cameras
+        .iter()
+        .clone()
+        .sort_by_key::<&ViewportObject, _>(|x| x.editor.get_index_param())
+        .map(|(x, _)| x.translation)
+        .collect_vec();
+    let target = get_podium_pos(&file, file.file.podium_position) + Vec3::Y;
+    for (mut transform, object) in &mut cameras {
+        let index = object.editor.get_index_param();
+        if index > 0 {
+            gizmos.line(
+                cameras_poses[index - 1],
+                transform.translation,
+                Srgba::rgb_u8(0, 200, 0),
+            );
+        }
+        transform.look_at(target, Vec3::Y);
     }
 }
 
