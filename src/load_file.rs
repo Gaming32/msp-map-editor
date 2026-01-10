@@ -180,76 +180,69 @@ impl LoadedFile {
             }
         }
 
-        let history_item = SimpleHistoryItem {
+        self.history.queued_items.push(SimpleHistoryItem {
             forward: edit.clone(),
             back: reversed,
-        };
-        self.history.items.truncate(self.history.index);
-        if let Some(group) = &mut self.history.edit_group {
-            group.push(history_item);
-        } else {
-            self.history.items.push(HistoryItem::Simple(history_item));
-            self.history.index += 1;
-        }
+        });
 
         self.apply_edit(commands, edit);
         true
     }
 
     pub fn undo(&mut self, commands: &mut Commands) {
-        if self.history.index > 0 {
-            self.history.index -= 1;
-            let items = mem::take(&mut self.history.items);
-            match &items[self.history.index] {
-                HistoryItem::Simple(item) => self.apply_edit(commands, item.back.clone()),
-                HistoryItem::Group(group) => {
-                    for item in group.iter().rev() {
-                        self.apply_edit(commands, item.back.clone());
-                    }
+        if self.history.index == 0 {
+            return;
+        }
+        self.abort_queued_edits(commands);
+        self.history.index -= 1;
+        let items = mem::take(&mut self.history.items);
+        match &items[self.history.index] {
+            HistoryItem::Simple(item) => self.apply_edit(commands, item.back.clone()),
+            HistoryItem::Group(group) => {
+                for item in group.iter().rev() {
+                    self.apply_edit(commands, item.back.clone());
                 }
             }
-            self.history.items = items;
         }
+        self.history.items = items;
     }
 
     pub fn redo(&mut self, commands: &mut Commands) {
-        if self.history.index < self.history.items.len() {
-            let items = mem::take(&mut self.history.items);
-            match &items[self.history.index] {
-                HistoryItem::Simple(item) => self.apply_edit(commands, item.forward.clone()),
-                HistoryItem::Group(group) => {
-                    for item in group {
-                        self.apply_edit(commands, item.forward.clone());
-                    }
+        if self.history.index == self.history.items.len() {
+            return;
+        }
+        self.abort_queued_edits(commands);
+        let items = mem::take(&mut self.history.items);
+        match &items[self.history.index] {
+            HistoryItem::Simple(item) => self.apply_edit(commands, item.forward.clone()),
+            HistoryItem::Group(group) => {
+                for item in group {
+                    self.apply_edit(commands, item.forward.clone());
                 }
             }
-            self.history.items = items;
-            self.history.index += 1;
         }
+        self.history.items = items;
+        self.history.index += 1;
     }
 
-    pub fn begin_edit_group(&mut self) {
-        if self.history.edit_group_depth == 0 {
-            self.history.edit_group = Some(vec![]);
+    fn apply_queued_edits(&mut self) {
+        let group = mem::take(&mut self.history.queued_items);
+        if group.is_empty() {
+            return;
         }
-        self.history.edit_group_depth += 1;
+        self.history.items.truncate(self.history.index);
+        self.history.items.push(if group.len() == 1 {
+            HistoryItem::Simple(group.into_iter().next().unwrap())
+        } else {
+            HistoryItem::Group(group)
+        });
+        self.history.index += 1;
     }
 
-    pub fn end_edit_group(&mut self) {
-        self.history.edit_group_depth -= 1;
-        if self.history.edit_group_depth == 0 {
-            let Some(group) = self.history.edit_group.take() else {
-                panic!("end_edit_group called with no active group");
-            };
-            match group.len() {
-                0 => {}
-                1 => self
-                    .history
-                    .items
-                    .push(HistoryItem::Simple(group.into_iter().next().unwrap())),
-                _ => self.history.items.push(HistoryItem::Group(group)),
-            }
-            self.history.index += 1;
+    fn abort_queued_edits(&mut self, commands: &mut Commands) {
+        let group = mem::take(&mut self.history.queued_items);
+        for item in group.iter().rev() {
+            self.apply_edit(commands, item.back.clone());
         }
     }
 
@@ -423,8 +416,7 @@ pub struct LoadedTexture {
 struct HistoryTracker {
     items: Vec<HistoryItem>,
     index: usize,
-    edit_group: Option<Vec<SimpleHistoryItem>>,
-    edit_group_depth: usize,
+    queued_items: Vec<SimpleHistoryItem>,
 }
 
 #[derive(Clone, Debug)]
@@ -447,7 +439,10 @@ impl Plugin for LoadFilePlugin {
             .add_message::<FileSaved>()
             .add_message::<UpdateHeader>()
             .add_systems(PostStartup, initial_open_file)
-            .add_systems(Update, file_state_handler);
+            .add_systems(Update, file_state_handler)
+            .add_systems(PostUpdate, |mut file: ResMut<LoadedFile>| {
+                file.apply_queued_edits()
+            });
     }
 }
 

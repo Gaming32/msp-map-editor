@@ -1217,7 +1217,6 @@ fn sync_from_gizmos(
                 }
                 let expand = MapEdit::ExpandMap(side, None);
                 let shrink = MapEdit::ShrinkMap(side);
-                file.begin_edit_group();
                 match side {
                     Direction::West | Direction::North => {
                         let axis = if side == Direction::West {
@@ -1265,8 +1264,6 @@ fn sync_from_gizmos(
 
                 let gold_pipe_pos = file.in_bounds(file.file.star_warp_tile);
                 file.edit_map(&mut commands, MapEdit::StarWarpTile(gold_pipe_pos));
-
-                file.end_edit_group();
             }
             EditObject::Camera(camera) => {
                 if !gizmo.is_active() {
