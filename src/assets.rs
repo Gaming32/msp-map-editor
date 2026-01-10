@@ -115,13 +115,6 @@ pub fn podium(assets: &AssetServer, position: Vec3) -> impl Bundle {
     )
 }
 
-pub fn star(assets: &AssetServer, position: Vec3) -> impl Bundle {
-    (
-        SceneRoot(assets.load(asset_path!("objects/star.glb#Scene0"))),
-        Transform::from_translation(position).with_scale(Vec3::splat(0.15)),
-    )
-}
-
 pub fn floor(assets: &AssetServer) -> Handle<Image> {
     assets.load(asset_path!("floor.png"))
 }
