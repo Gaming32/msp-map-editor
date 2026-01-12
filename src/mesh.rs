@@ -68,7 +68,7 @@ pub fn mesh_map(
             }
             TileHeight::Ramp { height, .. } => {
                 let dir_v = height.dir == TileRampDirection::Vertical;
-                let height = tile.height.center_height();
+                let height = tile.height.max_height();
                 if dir_v && (x == 0 || height > map[(y, x - 1)].height.center_height()) {
                     mesh_wall(&mut state, x, y, tile, Direction::West);
                 }
