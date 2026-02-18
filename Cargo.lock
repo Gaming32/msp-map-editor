@@ -3509,7 +3509,7 @@ dependencies = [
 
 [[package]]
 name = "msp-map-editor"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "bevy",
  "bevy-panic-handler",
