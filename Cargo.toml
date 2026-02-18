@@ -4,13 +4,14 @@ version = "1.0.2"
 edition = "2024"
 
 [dependencies]
-bevy = { version = "0.17.3", features = ["gif", "jpeg", "webp", "bmp", "ico", "tiff", "bevy_picking"] }
-bevy-panic-handler = "6.0.0"
-bevy_easings = "0.17.1"
+# bevy and related dependencies are locked on 0.17 until transform-gizmo-bevy and bevy_map_camera update
+bevy = { version = "=0.17.3", features = ["gif", "jpeg", "webp", "bmp", "ico", "tiff", "bevy_picking"] }
+bevy-panic-handler = "=6.0.0"
+bevy_easings = "=0.17.1"
 bevy_file_dialog = { git = "https://github.com/Gaming32/bevy_file_dialog", branch = "msp-map-editor", version = "0.9.1" }
 bevy_map_camera = { version = "0.5.0", features = ["easings"] }
-bevy_math = { version = "0.17.3", features = ["mint"] }
-bevy_mod_imgui = { features = ["docking"], git = "https://github.com/jbrd/bevy_mod_imgui" }
+bevy_math = { version = "=0.17.3", features = ["mint"] }
+bevy_mod_imgui = { features = ["docking"], git = "https://github.com/jbrd/bevy_mod_imgui", rev = "2a45495", version = "0.8.0" }
 directories = "6.0.0"
 enum-map = { version = "2.7.3", features = ["serde"] }
 grid = "1.0.0"

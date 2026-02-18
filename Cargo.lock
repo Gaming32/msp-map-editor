@@ -1039,7 +1039,7 @@ checksum = "7ef8e4b7e61dfe7719bb03c884dc270cd46a82efb40f93e9933b990c5c190c59"
 [[package]]
 name = "bevy_mod_imgui"
 version = "0.8.0"
-source = "git+https://github.com/jbrd/bevy_mod_imgui#2a45495b044169ed9451f07d97685e829277a1d5"
+source = "git+https://github.com/jbrd/bevy_mod_imgui?rev=2a45495#2a45495b044169ed9451f07d97685e829277a1d5"
 dependencies = [
  "bevy",
  "bytemuck",
