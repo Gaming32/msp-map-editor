@@ -482,29 +482,35 @@ pub struct ConnectionMap {
     pub west: Connection,
 }
 
-impl Index<Direction> for ConnectionMap {
-    type Output = Connection;
+macro_rules! impl_index_direction {
+    ($ty:ty => $output:ty) => {
+        impl Index<Direction> for $ty {
+            type Output = $output;
 
-    fn index(&self, index: Direction) -> &Self::Output {
-        match index {
-            Direction::West => &self.west,
-            Direction::East => &self.east,
-            Direction::North => &self.north,
-            Direction::South => &self.south,
+            fn index(&self, index: Direction) -> &Self::Output {
+                match index {
+                    Direction::West => &self.west,
+                    Direction::East => &self.east,
+                    Direction::North => &self.north,
+                    Direction::South => &self.south,
+                }
+            }
         }
-    }
+
+        impl IndexMut<Direction> for $ty {
+            fn index_mut(&mut self, index: Direction) -> &mut Self::Output {
+                match index {
+                    Direction::West => &mut self.west,
+                    Direction::East => &mut self.east,
+                    Direction::North => &mut self.north,
+                    Direction::South => &mut self.south,
+                }
+            }
+        }
+    };
 }
 
-impl IndexMut<Direction> for ConnectionMap {
-    fn index_mut(&mut self, index: Direction) -> &mut Self::Output {
-        match index {
-            Direction::West => &mut self.west,
-            Direction::East => &mut self.east,
-            Direction::North => &mut self.north,
-            Direction::South => &mut self.south,
-        }
-    }
-}
+impl_index_direction!(ConnectionMap => Connection);
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -589,29 +595,7 @@ impl Default for WallMaterialMap {
     }
 }
 
-impl Index<Direction> for WallMaterialMap {
-    type Output = Vec<MpsMaterial>;
-
-    fn index(&self, index: Direction) -> &Self::Output {
-        match index {
-            Direction::West => &self.west,
-            Direction::East => &self.east,
-            Direction::North => &self.north,
-            Direction::South => &self.south,
-        }
-    }
-}
-
-impl IndexMut<Direction> for WallMaterialMap {
-    fn index_mut(&mut self, index: Direction) -> &mut Self::Output {
-        match index {
-            Direction::West => &mut self.west,
-            Direction::East => &mut self.east,
-            Direction::North => &mut self.north,
-            Direction::South => &mut self.south,
-        }
-    }
-}
+impl_index_direction!(WallMaterialMap => Vec<MpsMaterial>);
 
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MpsMaterial(AtlasCoordValue);
