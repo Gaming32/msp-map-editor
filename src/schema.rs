@@ -10,6 +10,7 @@ use relative_path::RelativePathBuf;
 use serde::{Deserialize, Serialize};
 use serde_with::OneOrMany;
 use serde_with::serde_as;
+use std::collections::BTreeMap;
 use std::ops::{AddAssign, Index, IndexMut, Sub};
 use strum::{Display, IntoStaticStr, VariantArray};
 
@@ -26,6 +27,8 @@ pub struct MapFile {
     #[serde(flatten)]
     pub textures: Textures<RelativePathBuf>,
     pub shops: EnumMap<ShopNumber, Vec<ShopItem>>,
+    #[serde(default)]
+    pub animations: BTreeMap<String, AnimationDefinition>,
     #[serde(with = "grid_as_vec_vec")]
     pub data: Grid<TileData>,
 }
@@ -42,6 +45,7 @@ impl Default for MapFile {
             tutorial_shop: Default::default(),
             textures: Default::default(),
             shops: Default::default(),
+            animations: Default::default(),
             data: grid![[TileData::default()]],
         }
     }
@@ -300,6 +304,19 @@ pub enum ShopItem {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct AnimationDefinition {
+    pub anchor: MpsVec2,
+    pub states: Vec<AnimationDefinitionState>,
+}
+
+#[derive(Copy, Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct AnimationDefinitionState {
+    pub duration: f64,
+    pub rotation: f64,
+    pub translation: MpsVec3,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TileData {
     #[serde(flatten)]
@@ -314,6 +331,8 @@ pub struct TileData {
     #[serde(default)]
     pub walk_over: bool,
     pub silver_star_spawnable: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub animation: Option<TileAnimation>,
 }
 
 fn is_no_coins(x: &i32) -> bool {
@@ -642,4 +661,10 @@ pub enum PopupType {
     StarSteal,
     #[serde(untagged)]
     Shop(ShopNumber),
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct TileAnimation {
+    pub id: String,
+    pub states: Vec<BTreeMap<String, serde_json::Value>>,
 }
