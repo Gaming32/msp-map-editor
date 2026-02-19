@@ -1147,7 +1147,7 @@ fn draw_imgui(
         {
             let mut coins = range
                 .into_iter()
-                .map(|x| file.file[x].coins)
+                .map(|x| file.file[x].coins.unwrap_or_default())
                 .all_equal_value()
                 .ok();
             let coins_changed = if let Some(coins) = coins.as_mut() {
@@ -1160,7 +1160,10 @@ fn draw_imgui(
                 coins.is_some()
             };
             if coins_changed {
-                file.edit_map(&mut commands, MapEdit::ChangeCoins(range, vec![coins.unwrap(); range.area()]));
+                if coins == Some(0) {
+                    coins = None;
+                }
+                file.edit_map(&mut commands, MapEdit::ChangeCoins(range, vec![coins; range.area()]));
             }
 
             let mut walk_over = range

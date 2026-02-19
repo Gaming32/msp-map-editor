@@ -14,6 +14,7 @@ use relative_path::{PathExt, RelativePathBuf};
 use serde::Serialize;
 use serde_json::Serializer;
 use serde_json::ser::PrettyFormatter;
+use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::{env, fs, io, mem, path};
@@ -24,6 +25,7 @@ pub struct LoadedFile {
     pub dirty: bool,
     pub file: MapFile,
     pub loaded_textures: Textures<LoadedTexture>,
+    animation_state: HashMap<String, usize>,
     history: HistoryTracker,
     pub selected_range: Option<TileRange>,
 }
@@ -630,6 +632,7 @@ fn handle_load(
 
     open_file.path = Some(path);
     open_file.history = HistoryTracker::default();
+    open_file.animation_state.clear();
     open_file.selected_range = None;
     true
 }

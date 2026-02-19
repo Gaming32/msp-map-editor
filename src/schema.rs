@@ -6,12 +6,13 @@ use bevy_math::{Quat, Vec3};
 use enum_map::{Enum, EnumMap};
 use grid::{Grid, grid};
 use monostate::{MustBe, MustBeBool};
+use optional_struct::optional_struct;
 use relative_path::RelativePathBuf;
 use serde::{Deserialize, Serialize};
 use serde_with::OneOrMany;
 use serde_with::serde_as;
 use std::collections::BTreeMap;
-use std::ops::{AddAssign, Index, IndexMut, Sub};
+use std::ops::{Add, AddAssign, Index, IndexMut, Sub};
 use strum::{Display, IntoStaticStr, VariantArray};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -316,6 +317,7 @@ pub struct AnimationDefinitionState {
     pub translation: MpsVec3,
 }
 
+#[optional_struct]
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TileData {
@@ -326,17 +328,13 @@ pub struct TileData {
     pub materials: MaterialMap,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub popup: Option<PopupType>,
-    #[serde(default, skip_serializing_if = "is_no_coins")]
-    pub coins: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coins: Option<i32>,
     #[serde(default)]
     pub walk_over: bool,
     pub silver_star_spawnable: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub animation: Option<TileAnimation>,
-}
-
-fn is_no_coins(x: &i32) -> bool {
-    *x == 0
 }
 
 impl TileData {
@@ -474,11 +472,40 @@ impl TileHeight {
     }
 }
 
+impl Add<f64> for TileHeight {
+    type Output = Self;
+
+    fn add(self, rhs: f64) -> Self::Output {
+        match self {
+            Self::Flat { height, .. } => Self::Flat {
+                ramp: MustBeBool,
+                height: height + rhs,
+            },
+            Self::Ramp { height, .. } => Self::Ramp {
+                ramp: MustBeBool,
+                height: height + rhs,
+            },
+        }
+    }
+}
+
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TileRamp {
     pub dir: TileRampDirection,
     pub pos: f64,
     pub neg: f64,
+}
+
+impl Add<f64> for TileRamp {
+    type Output = Self;
+
+    fn add(self, rhs: f64) -> Self::Output {
+        Self {
+            pos: self.pos + rhs,
+            neg: self.neg + rhs,
+            ..self
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -666,5 +693,5 @@ pub enum PopupType {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct TileAnimation {
     pub id: String,
-    pub states: Vec<BTreeMap<String, serde_json::Value>>,
+    pub states: Vec<serde_json::Map<String, serde_json::Value>>,
 }

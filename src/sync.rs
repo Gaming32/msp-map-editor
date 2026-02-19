@@ -31,7 +31,7 @@ pub enum MapEdit {
     ChangeConnection(TileRange, Direction, Vec<Connection>),
     ChangeMaterial(TileRange, MaterialLocation, Vec<ListEdit<MpsMaterial>>),
     ChangePopupType(TileRange, Vec<Option<PopupType>>),
-    ChangeCoins(TileRange, Vec<i32>),
+    ChangeCoins(TileRange, Vec<Option<i32>>),
     ChangeWalkOver(TileRange, Vec<bool>),
     ChangeSilverStarSpawnable(TileRange, Vec<bool>),
 }
