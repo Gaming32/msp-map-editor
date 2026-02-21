@@ -31,7 +31,7 @@ use imgui::Image as ImguiImage;
 use itertools::Itertools;
 use monostate::MustBeBool;
 use std::borrow::Cow;
-use std::mem;
+use std::{array, mem};
 use strum::VariantArray;
 
 pub struct MapEditorUi;
@@ -131,27 +131,16 @@ struct SettingImageLoadWait {
 
 fn on_file_loaded(
     _: On<FileLoaded>,
-    file: Res<LoadedFile>,
     mut state: ResMut<UiState>,
     mut context: NonSendMut<ImguiContext>,
 ) {
-    let new_skybox_textures = file.loaded_textures.skybox.each_ref().map(|tex| {
-        context.register_bevy_texture(if tex.image != Handle::default() {
-            tex.image.clone()
-        } else {
-            state.unset_texture_icon.clone()
-        })
-    });
+    let new_skybox_textures =
+        array::from_fn(|_| context.register_bevy_texture(state.unset_texture_icon.clone()));
     if let Some(old_textures) = state.skybox_textures.replace(new_skybox_textures) {
         state.textures_to_free.extend(old_textures);
     }
 
-    let new_atlas_texture =
-        context.register_bevy_texture(if file.loaded_textures.atlas.image != Handle::default() {
-            file.loaded_textures.atlas.image.clone()
-        } else {
-            state.unset_texture_icon.clone()
-        });
+    let new_atlas_texture = context.register_bevy_texture(state.unset_texture_icon.clone());
     if let Some(old_texture) = state.atlas_texture.replace(new_atlas_texture) {
         state.textures_to_free.push(old_texture);
     }
