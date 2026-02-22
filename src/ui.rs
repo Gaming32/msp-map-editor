@@ -201,7 +201,8 @@ fn on_map_edited(on: On<MapEdited>, mut state: ResMut<UiState>) {
         | MapEdit::ChangeSilverStarSpawnable(_, _)
         | MapEdit::AddAnimationGroup(_, _, _)
         | MapEdit::DeleteAnimationGroup(_)
-        | MapEdit::RenameAnimationGroup(_, _, _, _) => {}
+        | MapEdit::RenameAnimationGroup(_, _, _, _)
+        | MapEdit::ChangeAnimationGroupAnchor(_, _) => {}
     }
 }
 
@@ -884,8 +885,9 @@ fn draw_imgui(
 
             let mut delete = None;
             let mut rename = None;
+            let mut anchor_edit = None;
             if let Some(icon_atlas) = state.icon_atlas_texture {
-                for (name, _animation) in file.file.animations.iter_mut() {
+                for (name, animation) in file.file.animations.iter_mut() {
                     if ui
                         .image_button_config(
                             format!("Remove animation definition {name}"),
@@ -910,6 +912,24 @@ fn draw_imgui(
                         {
                             rename = Some((name.clone(), new_name));
                         }
+
+                        ui.spacing();
+                        ui.text("Anchor");
+                        ui.same_line();
+                        if ui.button(format!("Select##Anchor {name}")) {
+                            commands.trigger(SelectForEditing {
+                                object: EditObject::AnimationGroupAnchor(name.as_str().into()),
+                                exclusive: true,
+                            });
+                        }
+                        let mut anchor = animation.anchor.as_array();
+                        if ui
+                            .input_scalar_n(format!("##Anchor {name}"), &mut anchor)
+                            .step(1)
+                            .build()
+                        {
+                            anchor_edit = Some((name.clone(), anchor));
+                        }
                     }
                 }
             }
@@ -922,6 +942,13 @@ fn draw_imgui(
                 file.edit_map(
                     &mut commands,
                     MapEdit::RenameAnimationGroup(old_name, new_name, affect_tiles, None),
+                );
+            }
+            if let Some((group, anchor)) = anchor_edit {
+                let anchor = file.in_bounds(anchor.into());
+                file.edit_map(
+                    &mut commands,
+                    MapEdit::ChangeAnimationGroupAnchor(group, anchor),
                 );
             }
         }

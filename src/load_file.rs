@@ -191,6 +191,9 @@ impl LoadedFile {
                     }),
                 )
             }
+            MapEdit::ChangeAnimationGroupAnchor(name, _) => {
+                MapEdit::ChangeAnimationGroupAnchor(name.clone(), self.file.animations[name].anchor)
+            }
         };
         if edit == reversed {
             let is_equal_reverse = match &reversed {
@@ -408,6 +411,11 @@ impl LoadedFile {
                     tile.animation = new_animation.clone();
                 }
             }
+            MapEdit::ChangeAnimationGroupAnchor(name, anchor) => {
+                if let Some(group) = self.file.animations.get_mut(name) {
+                    group.anchor = *anchor;
+                }
+            }
             MapEdit::DeleteAnimationGroup(name) => {
                 self.file.animations.remove(name);
                 for tile in self.file.data.iter_mut() {
@@ -459,6 +467,9 @@ impl LoadedFile {
         }
         self.file.tutorial_star.pos += adjust.into();
         self.file.tutorial_shop.pos += adjust.into();
+        for group in self.file.animations.values_mut() {
+            group.anchor += adjust;
+        }
     }
 
     pub fn can_undo(&self) -> bool {
