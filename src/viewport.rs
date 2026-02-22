@@ -445,7 +445,8 @@ fn on_map_edited(
             change_player_pos = true;
         }
         MapEdit::ShopWarpTile(index, edit) => {
-            let mut boxes = shop_hop_boxes.iter_mut()
+            let mut boxes = shop_hop_boxes
+                .iter_mut()
                 .sort_by_key::<&ViewportObject, _>(|obj| obj.editor.get_index_param())
                 .collect_vec();
             match *edit {
@@ -484,14 +485,17 @@ fn on_map_edited(
             change_podium_pos = true;
             let cam_target = get_podium_pos(&file, *pos) + Vec3::Y;
             for (_, mut transform, mut object) in results_cameras {
-                let target_pos = Vec3::from(file.file.results_anim_cam_poses[object.editor.get_index_param()]) + cam_target;
+                let target_pos =
+                    Vec3::from(file.file.results_anim_cam_poses[object.editor.get_index_param()])
+                        + cam_target;
                 transform.translation = target_pos;
                 object.old_pos = target_pos;
             }
         }
         MapEdit::ResultsCamera(index, edit) => {
             let cam_target = get_podium_pos(&file, file.file.podium_position) + Vec3::Y;
-            let mut cameras = results_cameras.iter_mut()
+            let mut cameras = results_cameras
+                .iter_mut()
                 .sort_by_key::<&ViewportObject, _>(|obj| obj.editor.get_index_param())
                 .collect_vec();
             match *edit {
@@ -572,8 +576,10 @@ fn on_map_edited(
         MapEdit::ChangePopupType(_, _)
         | MapEdit::ChangeCoins(_, _)
         | MapEdit::ChangeWalkOver(_, _)
-        | MapEdit::ChangeSilverStarSpawnable(_, _) // TODO: Make silver stars render on map
-        | MapEdit::RenameAnimationGroup(_, _, _, _) => {}
+        | MapEdit::ChangeSilverStarSpawnable(_, _) => {} // TODO: Make silver stars render on map
+        MapEdit::RenameAnimationGroup(_, _, _, _) => {
+            commands.trigger(RemeshMap);
+        }
     }
 
     if change_player_pos {
