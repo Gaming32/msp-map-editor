@@ -22,7 +22,8 @@ jobs:
         shell: bash
         run: echo "target_triple=$(rustc -Vv | grep host | cut -d' ' -f2)" >> "$GITHUB_OUTPUT"
       - name: Install Linux dependencies
-        run: sudo apt install libwayland-dev
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        run: sudo apt install g++ pkg-config libx11-dev libasound2-dev libudev-dev libxkbcommon-x11-0 libwayland-dev libxkbcommon-dev
       - name: Build Rust code
         run: cargo build --release
       - name: Upload artifact
