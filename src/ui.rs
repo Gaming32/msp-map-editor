@@ -131,6 +131,7 @@ struct SettingImageLoadWait {
 
 fn on_file_loaded(
     _: On<FileLoaded>,
+    file: Res<LoadedFile>,
     mut state: ResMut<UiState>,
     mut context: NonSendMut<ImguiContext>,
 ) {
@@ -139,10 +140,27 @@ fn on_file_loaded(
     if let Some(old_textures) = state.skybox_textures.replace(new_skybox_textures) {
         state.textures_to_free.extend(old_textures);
     }
+    state.waiting_textures.extend(
+        file.loaded_textures
+            .skybox
+            .iter()
+            .enumerate()
+            .filter(|&(_, tex)| tex.image != Handle::default())
+            .map(|(idx, tex)| SettingImageLoadWait {
+                image: tex.image.clone(),
+                pick: SettingImagePick::Skybox(idx),
+            }),
+    );
 
     let new_atlas_texture = context.register_bevy_texture(state.unset_texture_icon.clone());
     if let Some(old_texture) = state.atlas_texture.replace(new_atlas_texture) {
         state.textures_to_free.push(old_texture);
+    }
+    if file.loaded_textures.atlas.image != Handle::default() {
+        state.waiting_textures.push(SettingImageLoadWait {
+            image: file.loaded_textures.atlas.image.clone(),
+            pick: SettingImagePick::Atlas,
+        });
     }
 
     state.preview_star_warp_tile = true;
