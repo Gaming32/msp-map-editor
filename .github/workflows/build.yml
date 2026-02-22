@@ -21,6 +21,8 @@ jobs:
         id: target_triple
         shell: bash
         run: echo "target_triple=$(rustc -Vv | grep host | cut -d' ' -f2)" >> "$GITHUB_OUTPUT"
+      - name: Install Linux dependencies
+        run: sudo apt install libwayland-dev
       - name: Build Rust code
         run: cargo build --release
       - name: Upload artifact
