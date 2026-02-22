@@ -572,8 +572,8 @@ fn on_map_edited(
         MapEdit::ChangePopupType(_, _)
         | MapEdit::ChangeCoins(_, _)
         | MapEdit::ChangeWalkOver(_, _)
-        // Potentially make silver stars render on map when they get implemented fully
-        | MapEdit::ChangeSilverStarSpawnable(_, _) => {}
+        | MapEdit::ChangeSilverStarSpawnable(_, _) // TODO: Make silver stars render on map
+        | MapEdit::RenameAnimationGroup(_, _, _, _) => {}
     }
 
     if change_player_pos {

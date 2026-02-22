@@ -166,6 +166,22 @@ impl LoadedFile {
                     .map(|pos| self.file[pos].silver_star_spawnable)
                     .collect(),
             ),
+            MapEdit::RenameAnimationGroup(old_name, new_name, affected_tiles, _) => {
+                MapEdit::RenameAnimationGroup(
+                    new_name.clone(),
+                    old_name.clone(),
+                    affected_tiles.clone(),
+                    self.file.animations.get(new_name).map(|group| {
+                        Box::new((
+                            group.clone(),
+                            self.animation_state
+                                .get(new_name)
+                                .copied()
+                                .unwrap_or_default(),
+                        ))
+                    }),
+                )
+            }
         };
         if edit == reversed {
             let is_equal_reverse = match &reversed {
@@ -374,6 +390,28 @@ impl LoadedFile {
                 check_edit_range!(range, new, ChangeSilverStarSpawnable);
                 for (pos, &silver_star_spawnable) in range.into_iter().zip(new) {
                     self.file[pos].silver_star_spawnable = silver_star_spawnable;
+                }
+            }
+            MapEdit::RenameAnimationGroup(
+                old_name,
+                new_name,
+                affected_tiles,
+                replace_with_value,
+            ) => {
+                let value = self.file.animations.remove(old_name).unwrap();
+                let state = self.animation_state.remove(old_name).unwrap_or_default();
+                self.file.animations.insert(new_name.clone(), value);
+                self.animation_state.insert(new_name.clone(), state);
+                for tile in affected_tiles {
+                    let tile = self.file.index_to_tile_index(tile);
+                    self.file.data[tile].animation.as_mut().unwrap().id = new_name.clone();
+                }
+                if let Some(replace_with_value) = replace_with_value {
+                    self.file
+                        .animations
+                        .insert(old_name.clone(), replace_with_value.0.clone());
+                    self.animation_state
+                        .insert(old_name.clone(), replace_with_value.1);
                 }
             }
         }

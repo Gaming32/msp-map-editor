@@ -96,6 +96,7 @@ pub struct UiState {
     item_target: Option<(ShopNumber, usize)>,
     preview_star_warp_tile: bool,
     preview_podium: bool,
+    new_animation_group_name: String,
 }
 
 impl UiState {
@@ -197,7 +198,8 @@ fn on_map_edited(on: On<MapEdited>, mut state: ResMut<UiState>) {
         | MapEdit::ChangePopupType(_, _)
         | MapEdit::ChangeCoins(_, _)
         | MapEdit::ChangeWalkOver(_, _)
-        | MapEdit::ChangeSilverStarSpawnable(_, _) => {}
+        | MapEdit::ChangeSilverStarSpawnable(_, _)
+        | MapEdit::RenameAnimationGroup(_, _, _, _) => {}
     }
 }
 
@@ -841,6 +843,49 @@ fn draw_imgui(
                         });
                     }
                 }
+            }
+        }
+
+        if let Some(_token) = ui
+            .tree_node_config("Animation groups")
+            .framed(true)
+            .tree_push_on_open(false)
+            .push()
+        {
+            // if ui
+            //     .input_text("##New group", &mut state.new_animation_group_name)
+            //     .enter_returns_true(true)
+            //     .build()
+            //     || ui.small_button("New group")
+            // {
+            //     file.file
+            //         .animations
+            //         .entry(mem::take(&mut state.new_animation_group_name))
+            //         .or_default();
+            // }
+
+            let mut rename = None;
+            for (name, _animation) in file.file.animations.iter_mut() {
+                if let Some(_token) = ui.tree_node(name) {
+                    let mut new_name = name.clone();
+                    ui.text("Name");
+                    ui.same_line();
+                    if ui
+                        .input_text(format!("##Group name {name}"), &mut new_name)
+                        .enter_returns_true(true)
+                        .build()
+                    {
+                        rename = Some((name.clone(), new_name));
+                    }
+                }
+            }
+
+            if let Some((old_name, new_name)) = rename {
+                let affect_tiles = file.file.find_tiles_with_animation(&old_name);
+                file.edit_map(
+                    &mut commands,
+                    MapEdit::RenameAnimationGroup(old_name, new_name, affect_tiles, None),
+                );
             }
         }
     });

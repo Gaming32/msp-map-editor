@@ -1,10 +1,11 @@
 use crate::load_file::LoadedTexture;
 use crate::schema::{
-    Connection, MpsMaterial, MpsTransform, MpsVec2, MpsVec3, PopupType, ShopItem, ShopNumber,
-    TileData, TileHeight,
+    AnimationGroup, Connection, MpsMaterial, MpsTransform, MpsVec2, MpsVec3, PopupType, ShopItem,
+    ShopNumber, TileData, TileHeight,
 };
 use crate::tile_range::TileRange;
 use bevy::prelude::{Component, Event};
+use bit_set::BitSet;
 use std::mem;
 use strum::{AsRefStr, Display};
 use transform_gizmo_bevy::{GizmoHotkeys, GizmoMode, GizmoOptions};
@@ -34,6 +35,7 @@ pub enum MapEdit {
     ChangeCoins(TileRange, Vec<Option<i32>>),
     ChangeWalkOver(TileRange, Vec<bool>),
     ChangeSilverStarSpawnable(TileRange, Vec<bool>),
+    RenameAnimationGroup(String, String, BitSet, Option<Box<(AnimationGroup, usize)>>),
 }
 
 pub type MaterialLocation = Option<(Direction, usize)>;

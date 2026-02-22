@@ -3,6 +3,7 @@ use crate::tile_range::TileRange;
 use crate::utils::grid_as_vec_vec;
 use bevy::prelude::{EulerRot, FloatExt, Transform};
 use bevy_math::{Quat, Vec3};
+use bit_set::BitSet;
 use enum_map::{Enum, EnumMap};
 use grid::{Grid, grid};
 use monostate::{MustBe, MustBeBool};
@@ -29,7 +30,7 @@ pub struct MapFile {
     pub textures: Textures<RelativePathBuf>,
     pub shops: EnumMap<ShopNumber, Vec<ShopItem>>,
     #[serde(default)]
-    pub animations: BTreeMap<String, AnimationDefinition>,
+    pub animations: BTreeMap<String, AnimationGroup>,
     #[serde(with = "grid_as_vec_vec")]
     pub data: Grid<TileData>,
 }
@@ -77,6 +78,23 @@ impl MapFile {
                 }
             }
         }
+    }
+
+    pub fn tile_index_to_index(&self, (row, col): (usize, usize)) -> usize {
+        row * self.data.cols() + col
+    }
+
+    pub fn index_to_tile_index(&self, idx: usize) -> (usize, usize) {
+        let cols = self.data.cols();
+        (idx / cols, idx % cols)
+    }
+
+    pub fn find_tiles_with_animation(&self, name: &str) -> BitSet {
+        self.data
+            .indexed_iter()
+            .filter(|(_, tile)| tile.animation_id().map(String::as_str) == Some(name))
+            .map(|(idx, _)| self.tile_index_to_index(idx))
+            .collect()
     }
 }
 
@@ -305,13 +323,13 @@ pub enum ShopItem {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-pub struct AnimationDefinition {
+pub struct AnimationGroup {
     pub anchor: MpsVec2,
-    pub states: Vec<AnimationDefinitionState>,
+    pub states: Vec<AnimationGroupState>,
 }
 
 #[derive(Copy, Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-pub struct AnimationDefinitionState {
+pub struct AnimationGroupState {
     pub duration: f64,
     pub rotation: f64,
     pub translation: MpsVec3,

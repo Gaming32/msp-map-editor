@@ -3518,6 +3518,7 @@ dependencies = [
  "bevy_map_camera",
  "bevy_math",
  "bevy_mod_imgui",
+ "bit-set",
  "directories",
  "enum-map",
  "grid 1.0.0",
