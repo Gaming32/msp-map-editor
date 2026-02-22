@@ -1,7 +1,7 @@
 use crate::assets;
 use crate::assets::key_gate;
 use crate::schema::{
-    Connection, ConnectionCondition, MpsMaterial, TileData, TileHeight, TileRampDirection,
+    Connection, ConnectionCondition, MapFile, MpsMaterial, TileData, TileHeight, TileRampDirection,
 };
 use crate::sync::Direction;
 use crate::tile_range::TileRange;
@@ -11,13 +11,15 @@ use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
 use grid::Grid;
 use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::f32::consts::{FRAC_PI_2, PI};
 
 #[derive(Component)]
 pub struct MapMeshMarker;
 
 pub fn mesh_map(
-    map: &Grid<TileData>,
+    map: &MapFile,
+    animation_state: &HashMap<String, usize>,
     atlas: Handle<StandardMaterial>,
     assets: &AssetServer,
     materials: &mut Assets<StandardMaterial>,
@@ -30,6 +32,7 @@ pub fn mesh_map(
         transform: Transform,
     }
 
+    let tiles = &map.data;
     let mut state = State::new(map);
     let mut block_children = vec![];
     let mut key_gates = vec![];
@@ -45,46 +48,112 @@ pub fn mesh_map(
         ..Default::default()
     });
 
-    for ((y, x), tile) in map.indexed_iter() {
+    for ((y, x), tile) in tiles.indexed_iter() {
         if tile.height == TileHeight::default() {
             continue;
         }
 
+        let start_vertex = state.positions.len();
+        let animation_id = tile.animation_id();
+
         internal_mesh_top(&mut state, x, y, tile, 0.0);
         match tile.height {
             TileHeight::Flat { height, .. } => {
-                if x == 0 || height > map[(y, x - 1)].height.min_height() {
+                if x == 0
+                    || height > tiles[(y, x - 1)].height.min_height()
+                    || tiles[(y, x - 1)].animation_id() != animation_id
+                {
                     mesh_wall(&mut state, x, y, tile, Direction::West);
                 }
-                if x == map.cols() - 1 || height > map[(y, x + 1)].height.min_height() {
+                if x == tiles.cols() - 1
+                    || height > tiles[(y, x + 1)].height.min_height()
+                    || tiles[(y, x + 1)].animation_id() != animation_id
+                {
                     mesh_wall(&mut state, x, y, tile, Direction::East);
                 }
-                if y == 0 || height > map[(y - 1, x)].height.min_height() {
+                if y == 0
+                    || height > tiles[(y - 1, x)].height.min_height()
+                    || tiles[(y - 1, x)].animation_id() != animation_id
+                {
                     mesh_wall(&mut state, x, y, tile, Direction::North);
                 }
-                if y == map.rows() - 1 || height > map[(y + 1, x)].height.min_height() {
+                if y == tiles.rows() - 1
+                    || height > tiles[(y + 1, x)].height.min_height()
+                    || tiles[(y + 1, x)].animation_id() != animation_id
+                {
                     mesh_wall(&mut state, x, y, tile, Direction::South);
                 }
             }
             TileHeight::Ramp { height, .. } => {
                 let dir_v = height.dir == TileRampDirection::Vertical;
                 let height = tile.height.max_height();
-                if dir_v && (x == 0 || height > map[(y, x - 1)].height.center_height()) {
+                if dir_v
+                    && (x == 0
+                        || height > tiles[(y, x - 1)].height.center_height()
+                        || tiles[(y, x - 1)].animation_id() != animation_id)
+                {
                     mesh_wall(&mut state, x, y, tile, Direction::West);
                 }
-                if dir_v && (x == map.cols() - 1 || height > map[(y, x + 1)].height.center_height())
+                if dir_v
+                    && (x == tiles.cols() - 1
+                        || height > tiles[(y, x + 1)].height.center_height()
+                        || tiles[(y, x + 1)].animation_id() != animation_id)
                 {
                     mesh_wall(&mut state, x, y, tile, Direction::East);
                 }
-                if !dir_v && (y == 0 || height > map[(y - 1, x)].height.center_height()) {
+                if !dir_v
+                    && (y == 0
+                        || height > tiles[(y - 1, x)].height.center_height()
+                        || tiles[(y - 1, x)].animation_id() != animation_id)
+                {
                     mesh_wall(&mut state, x, y, tile, Direction::North);
                 }
                 if !dir_v
-                    && (y == map.rows() - 1 || height > map[(y + 1, x)].height.center_height())
+                    && (y == tiles.rows() - 1
+                        || height > tiles[(y + 1, x)].height.center_height()
+                        || tiles[(y + 1, x)].animation_id() != animation_id)
                 {
                     mesh_wall(&mut state, x, y, tile, Direction::South);
                 }
             }
+        }
+
+        if let Some(animation) = &tile.animation {
+            let state_index = animation_state
+                .get(&animation.id)
+                .copied()
+                .unwrap_or_default();
+            let Some(animation_def) = map.animations.get(&animation.id) else {
+                continue;
+            };
+            let Some(animation_state) = animation_def.states.get(state_index) else {
+                continue;
+            };
+
+            let (sin, cos) = animation_state.rotation.to_radians().sin_cos();
+            let sin = sin as f32;
+            let cos = cos as f32;
+
+            let x_anchor = animation_def.anchor.x as f32;
+            let z_anchor = animation_def.anchor.y as f32;
+
+            let x_offset = x_anchor + animation_state.translation.x as f32;
+            let y_offset = animation_state.translation.y as f32;
+            let z_offset = z_anchor + animation_state.translation.z as f32;
+
+            for [x, y, z] in state.positions.iter_mut().skip(start_vertex) {
+                *x -= x_anchor;
+                *z -= z_anchor;
+
+                let new_x = *x * cos - *z * sin;
+                let new_z = *x * sin + *z * cos;
+
+                *x = new_x + x_offset;
+                *y += y_offset;
+                *z = new_z + z_offset;
+            }
+
+            continue;
         }
 
         let xf = x as f32;
@@ -106,7 +175,7 @@ pub fn mesh_map(
             })
         };
         if x > 0 && tile.connections.west.impassible() && !tile.ramp() {
-            let neighbor = &map[(y, x - 1)];
+            let neighbor = &tiles[(y, x - 1)];
             if !neighbor.ramp() {
                 let neighbor_height = neighbor.height.center_height();
                 if center_height > neighbor_height {
@@ -116,15 +185,15 @@ pub fn mesh_map(
                 }
             }
         }
-        if x < map.cols() - 1
+        if x < tiles.cols() - 1
             && tile.connections.east.impassible()
             && !tile.ramp()
-            && center_height > map[(y, x + 1)].height.center_height()
+            && center_height > tiles[(y, x + 1)].height.center_height()
         {
             add_block(BLOCK_SIZE, 1.0, xf + 0.5 - BLOCK_SIZE_2, yf);
         }
         if y > 0 && tile.connections.north.impassible() && !tile.ramp() {
-            let neighbor = &map[(y - 1, x)];
+            let neighbor = &tiles[(y - 1, x)];
             if !neighbor.ramp() {
                 let neighbor_height = neighbor.height.center_height();
                 if center_height > neighbor.height.center_height() {
@@ -134,10 +203,10 @@ pub fn mesh_map(
                 }
             }
         }
-        if y < map.rows() - 1
+        if y < tiles.rows() - 1
             && tile.connections.south.impassible()
             && !tile.ramp()
-            && center_height > map[(y + 1, x)].height.center_height()
+            && center_height > tiles[(y + 1, x)].height.center_height()
         {
             add_block(1.0, BLOCK_SIZE, xf, yf + 0.5 - BLOCK_SIZE_2);
         }
@@ -171,7 +240,7 @@ pub fn mesh_map(
                         if y > 0
                             && let TileHeight::Ramp {
                                 height: neighbor, ..
-                            } = map[(y - 1, x)].height
+                            } = tiles[(y - 1, x)].height
                             && neighbor.neg < height
                         {
                             let v =
@@ -179,10 +248,10 @@ pub fn mesh_map(
                             offset += v * TRIM_SIZE_2;
                             extension += v.abs() * TRIM_SIZE;
                         }
-                        if y < map.rows() - 1
+                        if y < tiles.rows() - 1
                             && let TileHeight::Ramp {
                                 height: neighbor, ..
-                            } = map[(y + 1, x)].height
+                            } = tiles[(y + 1, x)].height
                             && neighbor.neg < height
                         {
                             let v =
@@ -192,14 +261,14 @@ pub fn mesh_map(
                         }
                         if $non_ramp_x_cond
                             && y > 0
-                            && map[(y - 1, $x_check_col)].height == tile.height
+                            && tiles[(y - 1, $x_check_col)].height == tile.height
                         {
                             offset += TRIM_SIZE_2;
                             extension += TRIM_SIZE;
                         }
                         if $non_ramp_x_cond
-                            && y < map.rows() - 1
-                            && map[(y + 1, $x_check_col)].height == tile.height
+                            && y < tiles.rows() - 1
+                            && tiles[(y + 1, $x_check_col)].height == tile.height
                         {
                             offset += TRIM_SIZE_2;
                             extension += TRIM_SIZE;
@@ -219,10 +288,11 @@ pub fn mesh_map(
                         let angle = f64::atan2(height.neg - height.pos, 1.0) as f32;
                         let max_height = height.pos.max(height.neg);
                         let v = (-angle / 2.0).sin().abs() / 16.0;
-                        if y > 0 && map[(y - 1, x)].height.equals_flat(max_height) {
+                        if y > 0 && tiles[(y - 1, x)].height.equals_flat(max_height) {
                             extension += v;
                         }
-                        if y < map.rows() - 1 && map[(y + 1, x)].height.equals_flat(max_height) {
+                        if y < tiles.rows() - 1 && tiles[(y + 1, x)].height.equals_flat(max_height)
+                        {
                             extension += v;
                         }
                         add_trim(
@@ -247,7 +317,7 @@ pub fn mesh_map(
                         if x > 0
                             && let TileHeight::Ramp {
                                 height: neighbor, ..
-                            } = map[(y, x - 1)].height
+                            } = tiles[(y, x - 1)].height
                             && neighbor.neg < height
                         {
                             let v =
@@ -255,10 +325,10 @@ pub fn mesh_map(
                             offset += v * TRIM_SIZE_2;
                             extension += v.abs() * TRIM_SIZE;
                         }
-                        if x < map.cols() - 1
+                        if x < tiles.cols() - 1
                             && let TileHeight::Ramp {
                                 height: neighbor, ..
-                            } = map[(y, x + 1)].height
+                            } = tiles[(y, x + 1)].height
                             && neighbor.neg < height
                         {
                             let v =
@@ -281,10 +351,11 @@ pub fn mesh_map(
                         let angle = f64::atan2(height.neg - height.pos, 1.0) as f32;
                         let max_height = height.pos.max(height.neg);
                         let v = (-angle / 2.0).sin().abs() / 16.0;
-                        if x > 0 && map[(y, x - 1)].height.equals_flat(max_height) {
+                        if x > 0 && tiles[(y, x - 1)].height.equals_flat(max_height) {
                             extension += v;
                         }
-                        if x < map.cols() - 1 && map[(y, x + 1)].height.equals_flat(max_height) {
+                        if x < tiles.cols() - 1 && tiles[(y, x + 1)].height.equals_flat(max_height)
+                        {
                             extension += v;
                         }
                         add_trim(
@@ -300,25 +371,25 @@ pub fn mesh_map(
                 }
             };
         }
-        if x == 0 || map[(y, x - 1)].height == TileHeight::default() {
+        if x == 0 || tiles[(y, x - 1)].height == TileHeight::default() {
             x_axis_trim!(x > 0, x - 1, xf - 0.5 + TRIM_SIZE_2);
         }
-        if x == map.cols() - 1 || map[(y, x + 1)].height == TileHeight::default() {
-            x_axis_trim!(x < map.cols() - 1, x + 1, xf + 0.5 - TRIM_SIZE_2);
+        if x == tiles.cols() - 1 || tiles[(y, x + 1)].height == TileHeight::default() {
+            x_axis_trim!(x < tiles.cols() - 1, x + 1, xf + 0.5 - TRIM_SIZE_2);
         }
-        if y == 0 || map[(y - 1, x)].height == TileHeight::default() {
+        if y == 0 || tiles[(y - 1, x)].height == TileHeight::default() {
             z_axis_trim!(yf - 0.5 + TRIM_SIZE_2);
         }
-        if y == map.rows() - 1 || map[(y + 1, x)].height == TileHeight::default() {
+        if y == tiles.rows() - 1 || tiles[(y + 1, x)].height == TileHeight::default() {
             z_axis_trim!(yf + 0.5 - TRIM_SIZE_2);
         }
 
         const LOCKED_CONNECTION: Connection = Connection::Conditional(ConnectionCondition::Lock);
         if x > 0
             && tile.connections.west == LOCKED_CONNECTION
-            && map[(y, x - 1)].connections.east == LOCKED_CONNECTION
+            && tiles[(y, x - 1)].connections.east == LOCKED_CONNECTION
         {
-            let neighbor = &map[(y, x - 1)];
+            let neighbor = &tiles[(y, x - 1)];
             let height = tile.height.center_height() as f32;
             let neighbor_height = neighbor.height.center_height() as f32;
             key_gates.push(key_gate(
@@ -337,9 +408,9 @@ pub fn mesh_map(
         }
         if y > 0
             && tile.connections.north == LOCKED_CONNECTION
-            && map[(y - 1, x)].connections.south == LOCKED_CONNECTION
+            && tiles[(y - 1, x)].connections.south == LOCKED_CONNECTION
         {
-            let neighbor = &map[(y - 1, x)];
+            let neighbor = &tiles[(y - 1, x)];
             let height = tile.height.center_height() as f32;
             let neighbor_height = neighbor.height.center_height() as f32;
             key_gates.push(key_gate(
@@ -368,14 +439,14 @@ pub fn mesh_map(
                 MeshObject {
                     mesh: Mesh3d(meshes.add({
                         let mut floor = State::new(map);
-                        let x2 = map.cols() as f32 - 0.5;
-                        let y2 = map.rows() as f32 - 0.5;
+                        let x2 = tiles.cols() as f32 - 0.5;
+                        let y2 = tiles.rows() as f32 - 0.5;
                         floor.positions.push([-0.5, 0.0, -0.5]);
                         floor.positions.push([x2, 0.0, -0.5]);
                         floor.positions.push([-0.5, 0.0, y2]);
                         floor.positions.push([x2, 0.0, y2]);
                         floor.push_quad_uv_indices(
-                            (0.0, 0.0, map.cols() as f32, map.rows() as f32),
+                            (0.0, 0.0, tiles.cols() as f32, tiles.rows() as f32),
                             0,
                         );
                         floor.into_mesh()
@@ -398,7 +469,7 @@ pub fn mesh_map(
 }
 
 pub fn mesh_top_highlights(
-    map: &Grid<TileData>,
+    map: &MapFile,
     tile_range: TileRange,
     materials: &mut Assets<StandardMaterial>,
     meshes: &mut Assets<Mesh>,
@@ -409,7 +480,7 @@ pub fn mesh_top_highlights(
         let y = y as usize;
         for x in tile_range.start.x..=tile_range.end.x {
             let x = x as usize;
-            let tile = &map[(y, x)];
+            let tile = &map.data[(y, x)];
             internal_mesh_top(&mut state, x, y, tile, 0.01);
         }
     }
@@ -430,16 +501,18 @@ pub fn mesh_top_highlights(
 }
 
 struct State<'a> {
-    map: &'a Grid<TileData>,
+    map: &'a MapFile,
+    tiles: &'a Grid<TileData>,
     positions: Vec<[f32; 3]>,
     uvs: Vec<[f32; 2]>,
     indices: Vec<u32>,
 }
 
 impl<'a> State<'a> {
-    fn new(map: &'a Grid<TileData>) -> Self {
+    fn new(map: &'a MapFile) -> Self {
         Self {
             map,
+            tiles: &map.data,
             positions: vec![],
             uvs: vec![],
             indices: vec![],
@@ -521,6 +594,19 @@ fn mesh_wall(
     tile: &TileData,
     direction: Direction,
 ) -> Option<()> {
+    let animation = tile
+        .animation_id()
+        .and_then(|anim| state.map.animations.get(anim));
+    let extra_height = animation
+        .and_then(|anim| {
+            anim.states
+                .iter()
+                .max_by(|a, b| a.translation.y.total_cmp(&b.translation.y))
+        })
+        .map(|state| state.translation.y.ceil() as isize)
+        .unwrap_or_default();
+    let render_full = animation.is_some();
+
     let mut index_start = state.positions.len() as u32;
     let xf = x as f32;
     let yf = y as f32;
@@ -589,16 +675,16 @@ fn mesh_wall(
         index_start += 3;
     }
 
-    let segments = min_height.ceil() as usize;
+    let segments = min_height.ceil() as isize;
     let mut last_segment = min_height % 1.0;
     if last_segment == 0.0 {
         last_segment = 1.0;
     }
 
-    for seg in (0..segments).rev() {
+    for seg in (-extra_height..segments).rev() {
         let seg_f = seg as f32;
         let (u1, v1, u2, mut v2) = materials
-            .get(segments - 1 - seg)
+            .get((segments - 1 - seg) as usize)
             .or_else(|| materials.last())?
             .to_uv_coords();
         if seg == segments - 1 {
@@ -625,7 +711,10 @@ fn mesh_wall(
                 state.uvs.push([u2, v1]);
                 state.uvs.push([u2, v2]);
                 state.push_flipped_quad_indices(index_start);
-                if x != 0 && state.map[(y, x - 1)].height.min_height() as f32 >= seg_f {
+                if !render_full
+                    && x != 0
+                    && state.tiles[(y, x - 1)].height.min_height() as f32 >= seg_f
+                {
                     break;
                 }
             }
@@ -643,8 +732,9 @@ fn mesh_wall(
                 state.uvs.push([u1, v1]);
                 state.uvs.push([u1, v2]);
                 state.push_quad_indices(index_start);
-                if x != state.map.cols() - 1
-                    && state.map[(y, x + 1)].height.min_height() as f32 >= seg_f
+                if !render_full
+                    && x != state.tiles.cols() - 1
+                    && state.tiles[(y, x + 1)].height.min_height() as f32 >= seg_f
                 {
                     break;
                 }
@@ -663,7 +753,10 @@ fn mesh_wall(
                 state.uvs.push([u2, v1]);
                 state.uvs.push([u1, v1]);
                 state.push_quad_indices(index_start);
-                if y != 0 && state.map[(y - 1, x)].height.min_height() as f32 >= seg_f {
+                if !render_full
+                    && y != 0
+                    && state.tiles[(y - 1, x)].height.min_height() as f32 >= seg_f
+                {
                     break;
                 }
             }
@@ -681,8 +774,9 @@ fn mesh_wall(
                 state.uvs.push([u1, v1]);
                 state.uvs.push([u2, v1]);
                 state.push_flipped_quad_indices(index_start);
-                if y != state.map.rows() - 1
-                    && state.map[(y + 1, x)].height.min_height() as f32 >= seg_f
+                if !render_full
+                    && y != state.tiles.rows() - 1
+                    && state.tiles[(y + 1, x)].height.min_height() as f32 >= seg_f
                 {
                     break;
                 }

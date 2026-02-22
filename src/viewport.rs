@@ -620,7 +620,8 @@ fn on_remesh_map(
 ) {
     let start = Instant::now();
     commands.spawn(mesh_map(
-        &file.file.data,
+        &file.file,
+        &file.animation_state,
         state.atlas_material.clone(),
         &assets,
         &mut materials,
@@ -628,7 +629,7 @@ fn on_remesh_map(
     ));
     if let Ok((highlighted, marker)) = highlighted.single_mut() {
         commands.entity(highlighted).insert(mesh_top_highlights(
-            &file.file.data,
+            &file.file,
             marker.0,
             &mut materials,
             &mut meshes,

@@ -341,6 +341,10 @@ impl TileData {
     pub fn ramp(&self) -> bool {
         matches!(self.height, TileHeight::Ramp { .. })
     }
+
+    pub fn animation_id(&self) -> Option<&String> {
+        self.animation.as_ref().map(|x| &x.id)
+    }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]

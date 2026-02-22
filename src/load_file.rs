@@ -25,7 +25,7 @@ pub struct LoadedFile {
     pub dirty: bool,
     pub file: MapFile,
     pub loaded_textures: Textures<LoadedTexture>,
-    animation_state: HashMap<String, usize>,
+    pub animation_state: HashMap<String, usize>,
     history: HistoryTracker,
     pub selected_range: Option<TileRange>,
 }
