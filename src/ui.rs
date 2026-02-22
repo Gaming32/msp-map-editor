@@ -1175,7 +1175,7 @@ fn draw_imgui(
                 .map(|x| file.file[x].walk_over)
                 .all_equal_value()
                 .ok();
-            if ui.checkbox_tri_state("Skip dice countdown", &mut walk_over) {
+            if ui.checkbox_tri_state("Popup triggered by walk over", &mut walk_over) {
                 file.edit_map(&mut commands, MapEdit::ChangeWalkOver(range, vec![walk_over.unwrap(); range.area()]));
             }
 
