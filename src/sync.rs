@@ -1,7 +1,7 @@
 use crate::load_file::LoadedTexture;
 use crate::schema::{
     AnimationGroup, Connection, MpsMaterial, MpsTransform, MpsVec2, MpsVec3, PopupType, ShopItem,
-    ShopNumber, TileData, TileHeight,
+    ShopNumber, TileAnimation, TileData, TileHeight,
 };
 use crate::tile_range::TileRange;
 use bevy::prelude::{Component, Event};
@@ -35,6 +35,8 @@ pub enum MapEdit {
     ChangeCoins(TileRange, Vec<Option<i32>>),
     ChangeWalkOver(TileRange, Vec<bool>),
     ChangeSilverStarSpawnable(TileRange, Vec<bool>),
+    AddAnimationGroup(String, AnimationGroup, Vec<Option<TileAnimation>>),
+    DeleteAnimationGroup(String),
     RenameAnimationGroup(String, String, BitSet, Option<Box<(AnimationGroup, usize)>>),
 }
 

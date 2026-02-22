@@ -577,7 +577,9 @@ fn on_map_edited(
         | MapEdit::ChangeCoins(_, _)
         | MapEdit::ChangeWalkOver(_, _)
         | MapEdit::ChangeSilverStarSpawnable(_, _) => {} // TODO: Make silver stars render on map
-        MapEdit::RenameAnimationGroup(_, _, _, _) => {
+        MapEdit::AddAnimationGroup(_, _, _)
+        | MapEdit::DeleteAnimationGroup(_)
+        | MapEdit::RenameAnimationGroup(_, _, _, _) => {
             commands.trigger(RemeshMap);
         }
     }

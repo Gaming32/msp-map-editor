@@ -80,20 +80,29 @@ impl MapFile {
         }
     }
 
+    #[inline(always)]
+    pub fn assert_data_order(&self) {
+        assert_eq!(self.data.order(), grid::Order::RowMajor);
+    }
+
     pub fn tile_index_to_index(&self, (row, col): (usize, usize)) -> usize {
+        self.assert_data_order();
         row * self.data.cols() + col
     }
 
     pub fn index_to_tile_index(&self, idx: usize) -> (usize, usize) {
+        self.assert_data_order();
         let cols = self.data.cols();
         (idx / cols, idx % cols)
     }
 
     pub fn find_tiles_with_animation(&self, name: &str) -> BitSet {
+        self.assert_data_order();
         self.data
-            .indexed_iter()
+            .iter()
+            .enumerate()
             .filter(|(_, tile)| tile.animation_id().map(String::as_str) == Some(name))
-            .map(|(idx, _)| self.tile_index_to_index(idx))
+            .map(|(idx, _)| idx)
             .collect()
     }
 }

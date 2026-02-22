@@ -5,8 +5,8 @@ use crate::load_file::{
     save_file_as,
 };
 use crate::schema::{
-    Connection, ConnectionCondition, CubeMap, MapFile, MpsMaterial, MpsTransform, MpsVec2,
-    PopupType, ShopItem, ShopNumber, TileHeight, TileRampDirection,
+    AnimationGroup, Connection, ConnectionCondition, CubeMap, MapFile, MpsMaterial, MpsTransform,
+    MpsVec2, PopupType, ShopItem, ShopNumber, TileHeight, TileRampDirection,
 };
 use crate::sync::{
     CameraId, Direction, ListEdit, MaterialLocation, PresetView, PreviewObject,
@@ -199,6 +199,8 @@ fn on_map_edited(on: On<MapEdited>, mut state: ResMut<UiState>) {
         | MapEdit::ChangeCoins(_, _)
         | MapEdit::ChangeWalkOver(_, _)
         | MapEdit::ChangeSilverStarSpawnable(_, _)
+        | MapEdit::AddAnimationGroup(_, _, _)
+        | MapEdit::DeleteAnimationGroup(_)
         | MapEdit::RenameAnimationGroup(_, _, _, _) => {}
     }
 }
@@ -852,34 +854,69 @@ fn draw_imgui(
             .tree_push_on_open(false)
             .push()
         {
-            // if ui
-            //     .input_text("##New group", &mut state.new_animation_group_name)
-            //     .enter_returns_true(true)
-            //     .build()
-            //     || ui.small_button("New group")
-            // {
-            //     file.file
-            //         .animations
-            //         .entry(mem::take(&mut state.new_animation_group_name))
-            //         .or_default();
-            // }
+            let mut new_group = false;
+            if ui
+                .input_text("##New group", &mut state.new_animation_group_name)
+                .enter_returns_true(true)
+                .build()
+            {
+                new_group = true;
+            }
+            ui.same_line();
+            if ui.small_button("New group") {
+                new_group = true;
+            }
+            if new_group
+                && !file
+                    .file
+                    .animations
+                    .contains_key(&state.new_animation_group_name)
+            {
+                file.edit_map(
+                    &mut commands,
+                    MapEdit::AddAnimationGroup(
+                        mem::take(&mut state.new_animation_group_name),
+                        AnimationGroup::default(),
+                        vec![],
+                    ),
+                );
+            }
 
+            let mut delete = None;
             let mut rename = None;
-            for (name, _animation) in file.file.animations.iter_mut() {
-                if let Some(_token) = ui.tree_node(name) {
-                    let mut new_name = name.clone();
-                    ui.text("Name");
-                    ui.same_line();
+            if let Some(icon_atlas) = state.icon_atlas_texture {
+                for (name, _animation) in file.file.animations.iter_mut() {
                     if ui
-                        .input_text(format!("##Group name {name}"), &mut new_name)
-                        .enter_returns_true(true)
+                        .image_button_config(
+                            format!("Remove animation definition {name}"),
+                            icon_atlas,
+                            [16.0; 2],
+                        )
+                        .uv0([0.5, 0.0])
+                        .uv1([1.0, 0.5])
                         .build()
                     {
-                        rename = Some((name.clone(), new_name));
+                        delete = Some(name.clone());
+                    }
+                    ui.same_line();
+                    if let Some(_token) = ui.tree_node(name) {
+                        let mut new_name = name.clone();
+                        ui.text("Name");
+                        ui.same_line();
+                        if ui
+                            .input_text(format!("##Group name {name}"), &mut new_name)
+                            .enter_returns_true(true)
+                            .build()
+                        {
+                            rename = Some((name.clone(), new_name));
+                        }
                     }
                 }
             }
 
+            if let Some(delete) = delete {
+                file.edit_map(&mut commands, MapEdit::DeleteAnimationGroup(delete));
+            }
             if let Some((old_name, new_name)) = rename {
                 let affect_tiles = file.file.find_tiles_with_animation(&old_name);
                 file.edit_map(

@@ -166,6 +166,15 @@ impl LoadedFile {
                     .map(|pos| self.file[pos].silver_star_spawnable)
                     .collect(),
             ),
+            MapEdit::AddAnimationGroup(name, _, _) => MapEdit::DeleteAnimationGroup(name.clone()),
+            MapEdit::DeleteAnimationGroup(name) => {
+                self.file.assert_data_order();
+                MapEdit::AddAnimationGroup(
+                    name.clone(),
+                    self.file.animations[name].clone(),
+                    self.file.data.iter().map(|x| x.animation.clone()).collect(),
+                )
+            }
             MapEdit::RenameAnimationGroup(old_name, new_name, affected_tiles, _) => {
                 MapEdit::RenameAnimationGroup(
                     new_name.clone(),
@@ -390,6 +399,21 @@ impl LoadedFile {
                 check_edit_range!(range, new, ChangeSilverStarSpawnable);
                 for (pos, &silver_star_spawnable) in range.into_iter().zip(new) {
                     self.file[pos].silver_star_spawnable = silver_star_spawnable;
+                }
+            }
+            MapEdit::AddAnimationGroup(name, animation, changed_tiles) => {
+                self.file.assert_data_order();
+                self.file.animations.insert(name.clone(), animation.clone());
+                for (tile, new_animation) in self.file.data.iter_mut().zip(changed_tiles) {
+                    tile.animation = new_animation.clone();
+                }
+            }
+            MapEdit::DeleteAnimationGroup(name) => {
+                self.file.animations.remove(name);
+                for tile in self.file.data.iter_mut() {
+                    if tile.animation_id() == Some(name) {
+                        tile.animation = None;
+                    }
                 }
             }
             MapEdit::RenameAnimationGroup(
