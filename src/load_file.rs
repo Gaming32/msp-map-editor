@@ -241,8 +241,8 @@ impl LoadedFile {
 
     fn abort_queued_edits(&mut self, commands: &mut Commands) {
         let group = mem::take(&mut self.history.queued_items);
-        for item in group.iter().rev() {
-            self.apply_edit(commands, item.back.clone());
+        for item in group.into_iter().rev() {
+            self.apply_edit(commands, item.back);
         }
     }
 
