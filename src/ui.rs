@@ -901,7 +901,8 @@ fn draw_imgui(
                         delete = Some(name.clone());
                     }
                     ui.same_line();
-                    if let Some(_token) = ui.tree_node(name) {
+                    let visual_name = if name.is_empty() { "Blank name" } else { name };
+                    if let Some(_token) = ui.tree_node(visual_name) {
                         let mut new_name = name.clone();
                         ui.text("Name");
                         ui.same_line();
