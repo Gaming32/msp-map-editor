@@ -597,12 +597,12 @@ fn mesh_wall(
 
     for seg in (0..segments).rev() {
         let seg_f = seg as f32;
-        let (u1, v1, u2, mut v2) = materials
+        let (u1, mut v1, u2, v2) = materials
             .get(segments - 1 - seg)
             .or_else(|| materials.last())?
             .to_uv_coords();
         if seg == segments - 1 {
-            v2 = v2 - MpsMaterial::V_INCREMENT + last_segment * MpsMaterial::V_INCREMENT;
+            v1 = v1 + MpsMaterial::V_INCREMENT - last_segment * MpsMaterial::V_INCREMENT;
         }
         let seg_height = if seg == segments - 1 {
             last_segment
