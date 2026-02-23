@@ -1,7 +1,7 @@
 use crate::load_file::LoadedTexture;
 use crate::schema::{
-    AnimationGroup, Connection, MpsMaterial, MpsTransform, MpsVec2, MpsVec3, PopupType, ShopItem,
-    ShopNumber, TileAnimation, TileData, TileHeight,
+    AnimationGroup, Connection, MpsMaterial, MpsTransform, MpsVec2, MpsVec2f, MpsVec3, PopupType,
+    ShopItem, ShopNumber, TileAnimation, TileData, TileHeight,
 };
 use crate::tile_range::TileRange;
 use bevy::prelude::{Component, Event};
@@ -39,7 +39,7 @@ pub enum MapEdit {
     AddAnimationGroup(String, AnimationGroup, Vec<Option<TileAnimation>>),
     DeleteAnimationGroup(String),
     RenameAnimationGroup(String, String, BitSet, Option<Box<(AnimationGroup, usize)>>),
-    ChangeAnimationGroupAnchor(String, MpsVec2),
+    ChangeAnimationGroupAnchor(String, MpsVec2f),
 }
 
 pub type MaterialLocation = Option<(Direction, usize)>;

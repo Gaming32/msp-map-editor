@@ -333,8 +333,47 @@ pub enum ShopItem {
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct AnimationGroup {
-    pub anchor: MpsVec2,
+    pub anchor: MpsVec2f,
     pub states: Vec<AnimationGroupState>,
+}
+
+#[derive(Copy, Clone, Debug, Default, PartialOrd, PartialEq, Serialize, Deserialize)]
+pub struct MpsVec2f {
+    pub x: f64,
+    pub y: f64,
+}
+
+impl MpsVec2f {
+    pub const fn new(x: f64, y: f64) -> Self {
+        Self { x, y }
+    }
+
+    pub const fn as_array(self) -> [f64; 2] {
+        [self.x, self.y]
+    }
+}
+
+impl From<[f64; 2]> for MpsVec2f {
+    fn from(value: [f64; 2]) -> Self {
+        Self::new(value[0], value[1])
+    }
+}
+
+impl Add<MpsVec2> for MpsVec2f {
+    type Output = Self;
+
+    fn add(self, rhs: MpsVec2) -> Self::Output {
+        Self {
+            x: self.x + rhs.x as f64,
+            y: self.y + rhs.y as f64,
+        }
+    }
+}
+
+impl From<MpsVec2f> for Vec3 {
+    fn from(value: MpsVec2f) -> Self {
+        Self::new(value.x as f32, 0.0, value.y as f32)
+    }
 }
 
 #[derive(Copy, Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

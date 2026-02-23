@@ -925,7 +925,7 @@ fn draw_imgui(
                         let mut anchor = animation.anchor.as_array();
                         if ui
                             .input_scalar_n(format!("##Anchor {name}"), &mut anchor)
-                            .step(1)
+                            .step(1.0)
                             .build()
                         {
                             anchor_edit = Some((name.clone(), anchor));
@@ -945,10 +945,9 @@ fn draw_imgui(
                 );
             }
             if let Some((group, anchor)) = anchor_edit {
-                let anchor = file.in_bounds(anchor.into());
                 file.edit_map(
                     &mut commands,
-                    MapEdit::ChangeAnimationGroupAnchor(group, anchor),
+                    MapEdit::ChangeAnimationGroupAnchor(group, anchor.into()),
                 );
             }
         }

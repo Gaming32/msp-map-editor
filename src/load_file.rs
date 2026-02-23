@@ -468,7 +468,7 @@ impl LoadedFile {
         self.file.tutorial_star.pos += adjust.into();
         self.file.tutorial_shop.pos += adjust.into();
         for group in self.file.animations.values_mut() {
-            group.anchor += adjust;
+            group.anchor = group.anchor + adjust;
         }
     }
 

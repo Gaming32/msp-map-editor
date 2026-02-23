@@ -5,7 +5,7 @@ use crate::assets::{
 use crate::culling::CullingPlugin;
 use crate::load_file::{FileLoaded, LoadedFile};
 use crate::mesh::{MapMeshMarker, mesh_map, mesh_top_highlights};
-use crate::schema::{MpsVec2, MpsVec3};
+use crate::schema::{MpsVec2, MpsVec2f, MpsVec3};
 use crate::sync::{
     CameraId, Direction, EditObject, ListEdit, MapEdit, MapEdited, PresetView, PreviewObject,
     PreviewResultsAnimation, SelectForEditing, TogglePreviewVisibility,
@@ -647,7 +647,7 @@ fn on_map_edited(
         for (entity, mut transform, mut object) in anchor_gizmos.iter_mut() {
             if let EditObject::AnimationGroupAnchor(name) = &object.editor {
                 if let Some(group) = file.file.animations.get(&name.to_string()) {
-                    let pos = get_height_offset_pos(&file, group.anchor, 0.0);
+                    let pos = group.anchor.into();
                     transform.translation = pos;
                     object.old_pos = pos;
                 } else {
@@ -773,7 +773,7 @@ fn on_select_for_editing(
         }
         EditObject::AnimationGroupAnchor(name) => {
             if let Some(group) = file.file.animations.get(&name.to_string()) {
-                let spawn = get_height_offset_pos(&file, group.anchor, 0.0);
+                let spawn = group.anchor.into();
                 commands.spawn((
                     ViewportObject {
                         editor: EditObject::AnimationGroupAnchor(name.clone()),
@@ -1230,13 +1230,13 @@ fn sync_from_gizmos(
                 if pos == object.old_pos {
                     continue;
                 }
-                let in_bounds_pos = file.in_bounds(MpsVec2::new(pos.x as i32, pos.z as i32));
-                if gizmo.is_active() {
-                    transform.translation = get_height_offset_pos(&file, in_bounds_pos, 0.0);
-                } else {
+                if !gizmo.is_active() {
                     file.edit_map(
                         &mut commands,
-                        MapEdit::ChangeAnimationGroupAnchor(name.to_string(), in_bounds_pos),
+                        MapEdit::ChangeAnimationGroupAnchor(
+                            name.to_string(),
+                            MpsVec2f::new(pos.x as f64, pos.z as f64),
+                        ),
                     );
                     object.old_pos = pos;
                 }
