@@ -278,7 +278,7 @@ pub fn mesh_map(
                     }
                     TileHeight::Ramp { height, .. } => {
                         let mut extension = 0.0;
-                        let angle = f64::atan2(height.neg - height.pos, 1.0) as f32;
+                        let angle = f64::atan2(height.pos - height.neg, 1.0) as f32;
                         let max_height = height.pos.max(height.neg);
                         let v = (-angle / 2.0).sin().abs() / 16.0;
                         if x > 0 && map[(y, x - 1)].height.equals_flat(max_height) {
