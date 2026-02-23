@@ -348,7 +348,7 @@ pub fn mesh_map(
                     }
                     TileHeight::Ramp { height, .. } => {
                         let mut extension = 0.0;
-                        let angle = f64::atan2(height.neg - height.pos, 1.0) as f32;
+                        let angle = f64::atan2(height.pos - height.neg, 1.0) as f32;
                         let max_height = height.pos.max(height.neg);
                         let v = (-angle / 2.0).sin().abs() / 16.0;
                         if x > 0 && tiles[(y, x - 1)].height.equals_flat(max_height) {
@@ -683,12 +683,12 @@ fn mesh_wall(
 
     for seg in (-extra_height..segments).rev() {
         let seg_f = seg as f32;
-        let (u1, v1, u2, mut v2) = materials
+        let (u1, mut v1, u2, v2) = materials
             .get((segments - 1 - seg) as usize)
             .or_else(|| materials.last())?
             .to_uv_coords();
         if seg == segments - 1 {
-            v2 = v2 - MpsMaterial::V_INCREMENT + last_segment * MpsMaterial::V_INCREMENT;
+            v1 = v1 + MpsMaterial::V_INCREMENT - last_segment * MpsMaterial::V_INCREMENT;
         }
         let seg_height = if seg == segments - 1 {
             last_segment
