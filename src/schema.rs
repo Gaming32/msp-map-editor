@@ -300,6 +300,12 @@ pub enum ShopNumber {
     #[serde(rename = "shop-3")]
     #[strum(serialize = "Shop #3")]
     Shop3,
+    #[serde(rename = "shop-4")]
+    #[strum(serialize = "Shop #4")]
+    Shop4,
+    #[serde(rename = "shop-5")]
+    #[strum(serialize = "Shop #5")]
+    Shop5,
 }
 
 #[derive(
