@@ -1,11 +1,13 @@
 use crate::load_file::LoadedTexture;
 use crate::schema::{
-    Connection, MpsMaterial, MpsTransform, MpsVec2, MpsVec3, PopupType, ShopItem, ShopNumber,
-    TileData, TileHeight,
+    AnimationGroup, Connection, MpsMaterial, MpsTransform, MpsVec2, MpsVec2f, MpsVec3, PopupType,
+    ShopItem, ShopNumber, TileAnimation, TileData, TileHeight,
 };
 use crate::tile_range::TileRange;
 use bevy::prelude::{Component, Event};
+use bit_set::BitSet;
 use std::mem;
+use std::sync::Arc;
 use strum::{AsRefStr, Display};
 use transform_gizmo_bevy::{GizmoHotkeys, GizmoMode, GizmoOptions};
 
@@ -31,9 +33,13 @@ pub enum MapEdit {
     ChangeConnection(TileRange, Direction, Vec<Connection>),
     ChangeMaterial(TileRange, MaterialLocation, Vec<ListEdit<MpsMaterial>>),
     ChangePopupType(TileRange, Vec<Option<PopupType>>),
-    ChangeCoins(TileRange, Vec<i32>),
+    ChangeCoins(TileRange, Vec<Option<i32>>),
     ChangeWalkOver(TileRange, Vec<bool>),
     ChangeSilverStarSpawnable(TileRange, Vec<bool>),
+    AddAnimationGroup(String, AnimationGroup, Vec<Option<TileAnimation>>),
+    DeleteAnimationGroup(String),
+    RenameAnimationGroup(String, String, BitSet, Option<Box<(AnimationGroup, usize)>>),
+    ChangeAnimationGroupAnchor(String, MpsVec2f),
 }
 
 pub type MaterialLocation = Option<(Direction, usize)>;
@@ -81,19 +87,20 @@ pub enum CameraId {
     ShopTutorial,
 }
 
-#[derive(Event, Copy, Clone, Debug)]
+#[derive(Event, Clone, Debug)]
 pub struct SelectForEditing {
     pub object: EditObject,
     pub exclusive: bool,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EditObject {
     StartingTile,
     ShopWarpTile(usize),
     StarWarpTile,
     PodiumPosition,
     ResultsCamera(usize),
+    AnimationGroupAnchor(Arc<str>),
     Camera(CameraId),
     MapSize(Direction),
     Tile(MpsVec2),
@@ -101,23 +108,24 @@ pub enum EditObject {
 }
 
 impl EditObject {
-    pub fn get_index_param(self) -> usize {
+    pub fn get_index_param(&self) -> usize {
         match self {
-            EditObject::ShopWarpTile(index) | EditObject::ResultsCamera(index) => index,
+            EditObject::ShopWarpTile(index) | EditObject::ResultsCamera(index) => *index,
             _ => panic!("EditObject::get_index_param called on unsupported editor"),
         }
     }
 
-    pub fn same_type(self, other: EditObject) -> bool {
-        mem::discriminant(&self) == mem::discriminant(&other)
+    pub fn same_type(&self, other: &EditObject) -> bool {
+        mem::discriminant(self) == mem::discriminant(other)
     }
 
-    pub fn update_gizmos(self, gizmos: GizmoOptions) -> GizmoOptions {
+    pub fn update_gizmos(&self, gizmos: GizmoOptions) -> GizmoOptions {
         match self {
             Self::StartingTile
             | Self::ShopWarpTile(_)
             | Self::StarWarpTile
-            | Self::PodiumPosition => GizmoOptions {
+            | Self::PodiumPosition
+            | Self::AnimationGroupAnchor(_) => GizmoOptions {
                 gizmo_modes: gizmos.gizmo_modes.intersection(
                     GizmoMode::TranslateX | GizmoMode::TranslateZ | GizmoMode::TranslateXZ,
                 ),
@@ -188,13 +196,14 @@ impl EditObject {
         }
     }
 
-    pub fn directly_usable(self) -> bool {
+    pub fn directly_usable(&self) -> bool {
         match self {
             Self::StartingTile
             | Self::ShopWarpTile(_)
             | Self::StarWarpTile
             | Self::PodiumPosition
             | Self::ResultsCamera(_)
+            | Self::AnimationGroupAnchor(_)
             | Self::Camera(_) => true,
             Self::MapSize(_) | Self::Tile(_) | Self::None => false,
         }

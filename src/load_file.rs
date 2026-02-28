@@ -14,6 +14,7 @@ use relative_path::{PathExt, RelativePathBuf};
 use serde::Serialize;
 use serde_json::Serializer;
 use serde_json::ser::PrettyFormatter;
+use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::{env, fs, io, mem, path};
@@ -24,6 +25,7 @@ pub struct LoadedFile {
     pub dirty: bool,
     pub file: MapFile,
     pub loaded_textures: Textures<LoadedTexture>,
+    pub animation_state: HashMap<String, usize>,
     history: HistoryTracker,
     pub selected_range: Option<TileRange>,
 }
@@ -164,6 +166,34 @@ impl LoadedFile {
                     .map(|pos| self.file[pos].silver_star_spawnable)
                     .collect(),
             ),
+            MapEdit::AddAnimationGroup(name, _, _) => MapEdit::DeleteAnimationGroup(name.clone()),
+            MapEdit::DeleteAnimationGroup(name) => {
+                self.file.assert_data_order();
+                MapEdit::AddAnimationGroup(
+                    name.clone(),
+                    self.file.animations[name].clone(),
+                    self.file.data.iter().map(|x| x.animation.clone()).collect(),
+                )
+            }
+            MapEdit::RenameAnimationGroup(old_name, new_name, affected_tiles, _) => {
+                MapEdit::RenameAnimationGroup(
+                    new_name.clone(),
+                    old_name.clone(),
+                    affected_tiles.clone(),
+                    self.file.animations.get(new_name).map(|group| {
+                        Box::new((
+                            group.clone(),
+                            self.animation_state
+                                .get(new_name)
+                                .copied()
+                                .unwrap_or_default(),
+                        ))
+                    }),
+                )
+            }
+            MapEdit::ChangeAnimationGroupAnchor(name, _) => {
+                MapEdit::ChangeAnimationGroupAnchor(name.clone(), self.file.animations[name].anchor)
+            }
         };
         if edit == reversed {
             let is_equal_reverse = match &reversed {
@@ -374,6 +404,48 @@ impl LoadedFile {
                     self.file[pos].silver_star_spawnable = silver_star_spawnable;
                 }
             }
+            MapEdit::AddAnimationGroup(name, animation, changed_tiles) => {
+                self.file.assert_data_order();
+                self.file.animations.insert(name.clone(), animation.clone());
+                for (tile, new_animation) in self.file.data.iter_mut().zip(changed_tiles) {
+                    tile.animation = new_animation.clone();
+                }
+            }
+            MapEdit::ChangeAnimationGroupAnchor(name, anchor) => {
+                if let Some(group) = self.file.animations.get_mut(name) {
+                    group.anchor = *anchor;
+                }
+            }
+            MapEdit::DeleteAnimationGroup(name) => {
+                self.file.animations.remove(name);
+                for tile in self.file.data.iter_mut() {
+                    if tile.animation_id() == Some(name) {
+                        tile.animation = None;
+                    }
+                }
+            }
+            MapEdit::RenameAnimationGroup(
+                old_name,
+                new_name,
+                affected_tiles,
+                replace_with_value,
+            ) => {
+                let value = self.file.animations.remove(old_name).unwrap();
+                let state = self.animation_state.remove(old_name).unwrap_or_default();
+                self.file.animations.insert(new_name.clone(), value);
+                self.animation_state.insert(new_name.clone(), state);
+                for tile in affected_tiles {
+                    let tile = self.file.index_to_tile_index(tile);
+                    self.file.data[tile].animation.as_mut().unwrap().id = new_name.clone();
+                }
+                if let Some(replace_with_value) = replace_with_value {
+                    self.file
+                        .animations
+                        .insert(old_name.clone(), replace_with_value.0.clone());
+                    self.animation_state
+                        .insert(old_name.clone(), replace_with_value.1);
+                }
+            }
         }
 
         if !self.dirty {
@@ -395,6 +467,9 @@ impl LoadedFile {
         }
         self.file.tutorial_star.pos += adjust.into();
         self.file.tutorial_shop.pos += adjust.into();
+        for group in self.file.animations.values_mut() {
+            group.anchor = group.anchor + adjust;
+        }
     }
 
     pub fn can_undo(&self) -> bool {
@@ -630,6 +705,7 @@ fn handle_load(
 
     open_file.path = Some(path);
     open_file.history = HistoryTracker::default();
+    open_file.animation_state.clear();
     open_file.selected_range = None;
     true
 }

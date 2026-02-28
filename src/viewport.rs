@@ -5,7 +5,7 @@ use crate::assets::{
 use crate::culling::CullingPlugin;
 use crate::load_file::{FileLoaded, LoadedFile};
 use crate::mesh::{MapMeshMarker, mesh_map, mesh_top_highlights};
-use crate::schema::{MpsVec2, MpsVec3};
+use crate::schema::{MpsVec2, MpsVec2f, MpsVec3};
 use crate::sync::{
     CameraId, Direction, EditObject, ListEdit, MapEdit, MapEdited, PresetView, PreviewObject,
     PreviewResultsAnimation, SelectForEditing, TogglePreviewVisibility,
@@ -226,6 +226,9 @@ struct ResultsAnimationPreview(Timer);
 #[derive(Component)]
 struct ResultsCameraMarker;
 
+#[derive(Component)]
+struct AnimationGroupAnchorGizmo;
+
 #[derive(Event)]
 struct RemeshMap;
 
@@ -370,6 +373,7 @@ fn on_map_edited(
             Without<TilesGizmo>,
             Without<TilesGizmoMesh>,
             Without<CameraId>,
+            Without<AnimationGroupAnchorGizmo>,
         ),
     >,
     mut shop_hop_boxes: Query<
@@ -383,6 +387,7 @@ fn on_map_edited(
             Without<TilesGizmo>,
             Without<TilesGizmoMesh>,
             Without<CameraId>,
+            Without<AnimationGroupAnchorGizmo>,
         ),
     >,
     gold_pipe: Query<
@@ -395,6 +400,7 @@ fn on_map_edited(
             Without<TilesGizmo>,
             Without<TilesGizmoMesh>,
             Without<CameraId>,
+            Without<AnimationGroupAnchorGizmo>,
         ),
     >,
     podium: Query<
@@ -406,6 +412,7 @@ fn on_map_edited(
             Without<TilesGizmo>,
             Without<TilesGizmoMesh>,
             Without<CameraId>,
+            Without<AnimationGroupAnchorGizmo>,
         ),
     >,
     mut results_cameras: Query<
@@ -416,6 +423,7 @@ fn on_map_edited(
             Without<TilesGizmo>,
             Without<TilesGizmoMesh>,
             Without<CameraId>,
+            Without<AnimationGroupAnchorGizmo>,
         ),
     >,
     bounds_markers: Query<
@@ -424,14 +432,33 @@ fn on_map_edited(
             Without<TilesGizmo>,
             Without<TilesGizmoMesh>,
             Without<CameraId>,
+            Without<AnimationGroupAnchorGizmo>,
         ),
     >,
     mut tiles_gizmo: Query<
         (&mut Transform, &mut ViewportObject, &TilesGizmo),
-        (Without<TilesGizmoMesh>, Without<CameraId>),
+        (
+            Without<TilesGizmoMesh>,
+            Without<CameraId>,
+            Without<AnimationGroupAnchorGizmo>,
+        ),
     >,
-    mut tiles_gizmo_child: Query<&mut Transform, (With<TilesGizmoMesh>, Without<CameraId>)>,
-    camera_gizmo: Query<(&mut Transform, &mut ViewportObject), With<CameraId>>,
+    mut tiles_gizmo_child: Query<
+        &mut Transform,
+        (
+            With<TilesGizmoMesh>,
+            Without<CameraId>,
+            Without<AnimationGroupAnchorGizmo>,
+        ),
+    >,
+    camera_gizmo: Query<
+        (&mut Transform, &mut ViewportObject),
+        (With<CameraId>, Without<AnimationGroupAnchorGizmo>),
+    >,
+    mut anchor_gizmos: Query<
+        (Entity, &mut Transform, &mut ViewportObject),
+        With<AnimationGroupAnchorGizmo>,
+    >,
     mut state: ResMut<ViewportState>,
     assets: Res<AssetServer>,
 ) {
@@ -439,13 +466,15 @@ fn on_map_edited(
     let mut change_gold_pipe_pos = false;
     let mut change_podium_pos = false;
     let mut change_tiles_gizmos = false;
+    let mut change_anchor_gizmos = false;
 
     match &on.0 {
         MapEdit::StartingTile(_) => {
             change_player_pos = true;
         }
         MapEdit::ShopWarpTile(index, edit) => {
-            let mut boxes = shop_hop_boxes.iter_mut()
+            let mut boxes = shop_hop_boxes
+                .iter_mut()
                 .sort_by_key::<&ViewportObject, _>(|obj| obj.editor.get_index_param())
                 .collect_vec();
             match *edit {
@@ -484,14 +513,17 @@ fn on_map_edited(
             change_podium_pos = true;
             let cam_target = get_podium_pos(&file, *pos) + Vec3::Y;
             for (_, mut transform, mut object) in results_cameras {
-                let target_pos = Vec3::from(file.file.results_anim_cam_poses[object.editor.get_index_param()]) + cam_target;
+                let target_pos =
+                    Vec3::from(file.file.results_anim_cam_poses[object.editor.get_index_param()])
+                        + cam_target;
                 transform.translation = target_pos;
                 object.old_pos = target_pos;
             }
         }
         MapEdit::ResultsCamera(index, edit) => {
             let cam_target = get_podium_pos(&file, file.file.podium_position) + Vec3::Y;
-            let mut cameras = results_cameras.iter_mut()
+            let mut cameras = results_cameras
+                .iter_mut()
                 .sort_by_key::<&ViewportObject, _>(|obj| obj.editor.get_index_param())
                 .collect_vec();
             match *edit {
@@ -572,8 +604,14 @@ fn on_map_edited(
         MapEdit::ChangePopupType(_, _)
         | MapEdit::ChangeCoins(_, _)
         | MapEdit::ChangeWalkOver(_, _)
-        // Potentially make silver stars render on map when they get implemented fully
-        | MapEdit::ChangeSilverStarSpawnable(_, _) => {}
+        | MapEdit::ChangeSilverStarSpawnable(_, _) => {} // TODO: Make silver stars render on map
+        MapEdit::AddAnimationGroup(_, _, _)
+        | MapEdit::DeleteAnimationGroup(_)
+        | MapEdit::RenameAnimationGroup(_, _, _, _)
+        | MapEdit::ChangeAnimationGroupAnchor(_, _) => {
+            commands.trigger(RemeshMap);
+            change_anchor_gizmos = true;
+        }
     }
 
     if change_player_pos {
@@ -604,6 +642,20 @@ fn on_map_edited(
         object.old_pos = offset;
         tiles_gizmo_child.single_mut().unwrap().translation = -offset;
     }
+
+    if change_anchor_gizmos {
+        for (entity, mut transform, mut object) in anchor_gizmos.iter_mut() {
+            if let EditObject::AnimationGroupAnchor(name) = &object.editor {
+                if let Some(group) = file.file.animations.get(&name.to_string()) {
+                    let pos = group.anchor.into();
+                    transform.translation = pos;
+                    object.old_pos = pos;
+                } else {
+                    commands.entity(entity).despawn();
+                }
+            }
+        }
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -620,7 +672,8 @@ fn on_remesh_map(
 ) {
     let start = Instant::now();
     commands.spawn(mesh_map(
-        &file.file.data,
+        &file.file,
+        &file.animation_state,
         state.atlas_material.clone(),
         &assets,
         &mut materials,
@@ -628,7 +681,7 @@ fn on_remesh_map(
     ));
     if let Ok((highlighted, marker)) = highlighted.single_mut() {
         commands.entity(highlighted).insert(mesh_top_highlights(
-            &file.file.data,
+            &file.file,
             marker.0,
             &mut materials,
             &mut meshes,
@@ -686,7 +739,7 @@ fn on_select_for_editing(
     }
     *gizmo_options = on.object.update_gizmos(*gizmo_options);
 
-    match on.object {
+    match &on.object {
         EditObject::StartingTile => {
             for player in player {
                 commands.entity(player).insert(GizmoTarget::default());
@@ -694,7 +747,7 @@ fn on_select_for_editing(
         }
         EditObject::ShopWarpTile(index) => {
             for (shop_hop, object) in shop_hop_box {
-                if object.editor.get_index_param() == index {
+                if object.editor.get_index_param() == *index {
                     commands.entity(shop_hop).insert(GizmoTarget::default());
                 }
             }
@@ -713,33 +766,50 @@ fn on_select_for_editing(
         }
         EditObject::ResultsCamera(index) => {
             for (camera, object) in results_camera {
-                if object.editor.get_index_param() == index {
+                if object.editor.get_index_param() == *index {
                     commands.entity(camera).insert(GizmoTarget::default());
                 }
             }
         }
+        EditObject::AnimationGroupAnchor(name) => {
+            if let Some(group) = file.file.animations.get(&name.to_string()) {
+                let spawn = group.anchor.into();
+                commands.spawn((
+                    ViewportObject {
+                        editor: EditObject::AnimationGroupAnchor(name.clone()),
+                        old_pos: spawn,
+                        old_rot: None,
+                    },
+                    TemporaryViewportObject,
+                    Transform::from_translation(spawn),
+                    GizmoTarget::default(),
+                    AnimationGroupAnchorGizmo,
+                ));
+            }
+        }
         EditObject::MapSize(side) => {
-            let spawn = get_bounds_gizmo_location(&file, side);
+            let spawn = get_bounds_gizmo_location(&file, *side);
             commands.spawn((
                 ViewportObject {
-                    editor: EditObject::MapSize(side),
+                    editor: EditObject::MapSize(*side),
                     old_pos: spawn,
                     old_rot: None,
                 },
                 TemporaryViewportObject,
-                BoundsGizmo(side),
+                BoundsGizmo(*side),
                 Transform::from_translation(spawn),
                 GizmoTarget::default(),
             ));
         }
         EditObject::Camera(target) => {
-            for (camera, &id) in cameras {
+            for (camera, id) in cameras {
                 if id == target {
                     commands.entity(camera).insert(GizmoTarget::default());
                 }
             }
         }
         EditObject::Tile(new_pos) => {
+            let new_pos = *new_pos;
             if !on.exclusive
                 && let Ok((mut transform, mut tiles, mut object)) = tiles_gizmo.single_mut()
             {
@@ -867,7 +937,7 @@ fn on_pointer_click(
         if !object.editor.directly_usable() {
             return;
         }
-        object.editor
+        object.editor.clone()
     } else if meshes.contains(on.entity) {
         let coord_vec = on.hit.position.unwrap() - on.hit.normal.unwrap() * 0.001;
         let coord = MpsVec2::new(coord_vec.x.round() as i32, coord_vec.z.round() as i32);
@@ -875,10 +945,11 @@ fn on_pointer_click(
     } else {
         return;
     };
+    let exclusive = !keys.any_pressed(modifier_key!(Shift))
+        || current_gizmos.iter().any(|x| !editor.same_type(&x.editor));
     commands.trigger(SelectForEditing {
         object: editor,
-        exclusive: !keys.any_pressed(modifier_key!(Shift))
-            || current_gizmos.iter().any(|x| !editor.same_type(x.editor)),
+        exclusive,
     });
 }
 
@@ -1140,7 +1211,7 @@ fn sync_from_gizmos(
     mut selected_mesh_gizmo: Query<&mut Transform, With<TilesGizmoMesh>>,
 ) {
     for (mut transform, mut object, gizmo, tiles) in gizmos {
-        match object.editor {
+        match object.editor.clone() {
             EditObject::StartingTile => {
                 let pos = transform.translation;
                 if pos == object.old_pos {
@@ -1151,6 +1222,22 @@ fn sync_from_gizmos(
                     transform.translation = get_player_pos(&file, in_bounds_pos);
                 } else {
                     file.edit_map(&mut commands, MapEdit::StartingTile(in_bounds_pos));
+                    object.old_pos = pos;
+                }
+            }
+            EditObject::AnimationGroupAnchor(name) => {
+                let pos = transform.translation;
+                if pos == object.old_pos {
+                    continue;
+                }
+                if !gizmo.is_active() {
+                    file.edit_map(
+                        &mut commands,
+                        MapEdit::ChangeAnimationGroupAnchor(
+                            name.to_string(),
+                            MpsVec2f::new(pos.x as f64, pos.z as f64),
+                        ),
+                    );
                     object.old_pos = pos;
                 }
             }

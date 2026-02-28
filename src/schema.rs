@@ -3,14 +3,17 @@ use crate::tile_range::TileRange;
 use crate::utils::grid_as_vec_vec;
 use bevy::prelude::{EulerRot, FloatExt, Transform};
 use bevy_math::{Quat, Vec3};
+use bit_set::BitSet;
 use enum_map::{Enum, EnumMap};
 use grid::{Grid, grid};
 use monostate::{MustBe, MustBeBool};
+use optional_struct::optional_struct;
 use relative_path::RelativePathBuf;
 use serde::{Deserialize, Serialize};
 use serde_with::OneOrMany;
 use serde_with::serde_as;
-use std::ops::{AddAssign, Index, IndexMut, Sub};
+use std::collections::BTreeMap;
+use std::ops::{Add, AddAssign, Index, IndexMut, Sub};
 use strum::{Display, IntoStaticStr, VariantArray};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -26,6 +29,8 @@ pub struct MapFile {
     #[serde(flatten)]
     pub textures: Textures<RelativePathBuf>,
     pub shops: EnumMap<ShopNumber, Vec<ShopItem>>,
+    #[serde(default)]
+    pub animations: BTreeMap<String, AnimationGroup>,
     #[serde(with = "grid_as_vec_vec")]
     pub data: Grid<TileData>,
 }
@@ -42,6 +47,7 @@ impl Default for MapFile {
             tutorial_shop: Default::default(),
             textures: Default::default(),
             shops: Default::default(),
+            animations: Default::default(),
             data: grid![[TileData::default()]],
         }
     }
@@ -72,6 +78,32 @@ impl MapFile {
                 }
             }
         }
+    }
+
+    #[inline(always)]
+    pub fn assert_data_order(&self) {
+        assert_eq!(self.data.order(), grid::Order::RowMajor);
+    }
+
+    pub fn tile_index_to_index(&self, (row, col): (usize, usize)) -> usize {
+        self.assert_data_order();
+        row * self.data.cols() + col
+    }
+
+    pub fn index_to_tile_index(&self, idx: usize) -> (usize, usize) {
+        self.assert_data_order();
+        let cols = self.data.cols();
+        (idx / cols, idx % cols)
+    }
+
+    pub fn find_tiles_with_animation(&self, name: &str) -> BitSet {
+        self.assert_data_order();
+        self.data
+            .iter()
+            .enumerate()
+            .filter(|(_, tile)| tile.animation_id().map(String::as_str) == Some(name))
+            .map(|(idx, _)| idx)
+            .collect()
     }
 }
 
@@ -268,6 +300,12 @@ pub enum ShopNumber {
     #[serde(rename = "shop-3")]
     #[strum(serialize = "Shop #3")]
     Shop3,
+    #[serde(rename = "shop-4")]
+    #[strum(serialize = "Shop #4")]
+    Shop4,
+    #[serde(rename = "shop-5")]
+    #[strum(serialize = "Shop #5")]
+    Shop5,
 }
 
 #[derive(
@@ -300,6 +338,59 @@ pub enum ShopItem {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct AnimationGroup {
+    pub anchor: MpsVec2f,
+    pub states: Vec<AnimationGroupState>,
+}
+
+#[derive(Copy, Clone, Debug, Default, PartialOrd, PartialEq, Serialize, Deserialize)]
+pub struct MpsVec2f {
+    pub x: f64,
+    pub y: f64,
+}
+
+impl MpsVec2f {
+    pub const fn new(x: f64, y: f64) -> Self {
+        Self { x, y }
+    }
+
+    pub const fn as_array(self) -> [f64; 2] {
+        [self.x, self.y]
+    }
+}
+
+impl From<[f64; 2]> for MpsVec2f {
+    fn from(value: [f64; 2]) -> Self {
+        Self::new(value[0], value[1])
+    }
+}
+
+impl Add<MpsVec2> for MpsVec2f {
+    type Output = Self;
+
+    fn add(self, rhs: MpsVec2) -> Self::Output {
+        Self {
+            x: self.x + rhs.x as f64,
+            y: self.y + rhs.y as f64,
+        }
+    }
+}
+
+impl From<MpsVec2f> for Vec3 {
+    fn from(value: MpsVec2f) -> Self {
+        Self::new(value.x as f32, 0.0, value.y as f32)
+    }
+}
+
+#[derive(Copy, Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct AnimationGroupState {
+    pub duration: f64,
+    pub rotation: f64,
+    pub translation: MpsVec3,
+}
+
+#[optional_struct]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TileData {
     #[serde(flatten)]
@@ -309,20 +400,22 @@ pub struct TileData {
     pub materials: MaterialMap,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub popup: Option<PopupType>,
-    #[serde(default, skip_serializing_if = "is_no_coins")]
-    pub coins: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coins: Option<i32>,
     #[serde(default)]
     pub walk_over: bool,
     pub silver_star_spawnable: bool,
-}
-
-fn is_no_coins(x: &i32) -> bool {
-    *x == 0
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub animation: Option<TileAnimation>,
 }
 
 impl TileData {
     pub fn ramp(&self) -> bool {
         matches!(self.height, TileHeight::Ramp { .. })
+    }
+
+    pub fn animation_id(&self) -> Option<&String> {
+        self.animation.as_ref().map(|x| &x.id)
     }
 }
 
@@ -455,11 +548,40 @@ impl TileHeight {
     }
 }
 
+impl Add<f64> for TileHeight {
+    type Output = Self;
+
+    fn add(self, rhs: f64) -> Self::Output {
+        match self {
+            Self::Flat { height, .. } => Self::Flat {
+                ramp: MustBeBool,
+                height: height + rhs,
+            },
+            Self::Ramp { height, .. } => Self::Ramp {
+                ramp: MustBeBool,
+                height: height + rhs,
+            },
+        }
+    }
+}
+
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TileRamp {
     pub dir: TileRampDirection,
     pub pos: f64,
     pub neg: f64,
+}
+
+impl Add<f64> for TileRamp {
+    type Output = Self;
+
+    fn add(self, rhs: f64) -> Self::Output {
+        Self {
+            pos: self.pos + rhs,
+            neg: self.neg + rhs,
+            ..self
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -642,4 +764,10 @@ pub enum PopupType {
     StarSteal,
     #[serde(untagged)]
     Shop(ShopNumber),
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct TileAnimation {
+    pub id: String,
+    pub states: Vec<serde_json::Map<String, serde_json::Value>>,
 }

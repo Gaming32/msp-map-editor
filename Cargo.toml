@@ -12,6 +12,7 @@ bevy_file_dialog = { git = "https://github.com/Gaming32/bevy_file_dialog", branc
 bevy_map_camera = { version = "0.5.0", features = ["easings"] }
 bevy_math = { version = "=0.17.3", features = ["mint"] }
 bevy_mod_imgui = { features = ["docking"], git = "https://github.com/jbrd/bevy_mod_imgui", rev = "2a45495", version = "0.8.0" }
+bit-set = "0.8.0"
 directories = "6.0.0"
 enum-map = { version = "2.7.3", features = ["serde"] }
 grid = "1.0.0"
@@ -20,6 +21,7 @@ imgui = "0.12.0"
 itertools = "0.14.0"
 monostate = "1.0.2"
 native-dialog = { version = "0.9.6", features = ["async"] }
+optional_struct = "0.5.2"
 relative-path = { version = "2.0.1", features = ["serde"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"

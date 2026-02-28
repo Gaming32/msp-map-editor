@@ -5,8 +5,8 @@ use crate::load_file::{
     save_file_as,
 };
 use crate::schema::{
-    Connection, ConnectionCondition, CubeMap, MapFile, MpsMaterial, MpsTransform, MpsVec2,
-    PopupType, ShopItem, ShopNumber, TileHeight, TileRampDirection,
+    AnimationGroup, Connection, ConnectionCondition, CubeMap, MapFile, MpsMaterial, MpsTransform,
+    MpsVec2, PopupType, ShopItem, ShopNumber, TileHeight, TileRampDirection,
 };
 use crate::sync::{
     CameraId, Direction, ListEdit, MaterialLocation, PresetView, PreviewObject,
@@ -96,6 +96,7 @@ pub struct UiState {
     item_target: Option<(ShopNumber, usize)>,
     preview_star_warp_tile: bool,
     preview_podium: bool,
+    new_animation_group_name: String,
 }
 
 impl UiState {
@@ -197,7 +198,11 @@ fn on_map_edited(on: On<MapEdited>, mut state: ResMut<UiState>) {
         | MapEdit::ChangePopupType(_, _)
         | MapEdit::ChangeCoins(_, _)
         | MapEdit::ChangeWalkOver(_, _)
-        | MapEdit::ChangeSilverStarSpawnable(_, _) => {}
+        | MapEdit::ChangeSilverStarSpawnable(_, _)
+        | MapEdit::AddAnimationGroup(_, _, _)
+        | MapEdit::DeleteAnimationGroup(_)
+        | MapEdit::RenameAnimationGroup(_, _, _, _)
+        | MapEdit::ChangeAnimationGroupAnchor(_, _) => {}
     }
 }
 
@@ -843,6 +848,110 @@ fn draw_imgui(
                 }
             }
         }
+
+        if let Some(_token) = ui
+            .tree_node_config("Animation groups")
+            .framed(true)
+            .tree_push_on_open(false)
+            .push()
+        {
+            let mut new_group = false;
+            if ui
+                .input_text("##New group", &mut state.new_animation_group_name)
+                .enter_returns_true(true)
+                .build()
+            {
+                new_group = true;
+            }
+            ui.same_line();
+            if ui.small_button("New group") {
+                new_group = true;
+            }
+            if new_group
+                && !file
+                    .file
+                    .animations
+                    .contains_key(&state.new_animation_group_name)
+            {
+                file.edit_map(
+                    &mut commands,
+                    MapEdit::AddAnimationGroup(
+                        mem::take(&mut state.new_animation_group_name),
+                        AnimationGroup::default(),
+                        vec![],
+                    ),
+                );
+            }
+
+            let mut delete = None;
+            let mut rename = None;
+            let mut anchor_edit = None;
+            if let Some(icon_atlas) = state.icon_atlas_texture {
+                for (name, animation) in file.file.animations.iter_mut() {
+                    if ui
+                        .image_button_config(
+                            format!("Remove animation definition {name}"),
+                            icon_atlas,
+                            [16.0; 2],
+                        )
+                        .uv0([0.5, 0.0])
+                        .uv1([1.0, 0.5])
+                        .build()
+                    {
+                        delete = Some(name.clone());
+                    }
+                    ui.same_line();
+                    let visual_name = if name.is_empty() { "Blank name" } else { name };
+                    if let Some(_token) = ui.tree_node(visual_name) {
+                        let mut new_name = name.clone();
+                        ui.text("Name");
+                        ui.same_line();
+                        if ui
+                            .input_text(format!("##Group name {name}"), &mut new_name)
+                            .enter_returns_true(true)
+                            .build()
+                        {
+                            rename = Some((name.clone(), new_name));
+                        }
+
+                        ui.spacing();
+                        ui.text("Anchor");
+                        ui.same_line();
+                        if ui.button(format!("Select##Anchor {name}")) {
+                            commands.trigger(SelectForEditing {
+                                object: EditObject::AnimationGroupAnchor(name.as_str().into()),
+                                exclusive: true,
+                            });
+                        }
+                        let mut anchor = animation.anchor.as_array();
+                        if ui
+                            .input_scalar_n(format!("##Anchor {name}"), &mut anchor)
+                            .step(1.0)
+                            .build()
+                        {
+                            anchor_edit = Some((name.clone(), anchor));
+                        }
+                    }
+                }
+            }
+
+            if let Some(delete) = delete {
+                file.edit_map(&mut commands, MapEdit::DeleteAnimationGroup(delete));
+            }
+            if let Some((old_name, new_name)) = rename {
+                let affect_tiles = file.file.find_tiles_with_animation(&old_name);
+                file.edit_map(
+                    &mut commands,
+                    MapEdit::RenameAnimationGroup(old_name, new_name, affect_tiles, None),
+                );
+            }
+            if let Some((group, anchor)) = anchor_edit {
+                file.edit_map(
+                    &mut commands,
+                    MapEdit::ChangeAnimationGroupAnchor(group, anchor.into()),
+                );
+            }
+        }
     });
 
     let mut open_material_picker = false;
@@ -1154,7 +1263,7 @@ fn draw_imgui(
         {
             let mut coins = range
                 .into_iter()
-                .map(|x| file.file[x].coins)
+                .map(|x| file.file[x].coins.unwrap_or_default())
                 .all_equal_value()
                 .ok();
             let coins_changed = if let Some(coins) = coins.as_mut() {
@@ -1167,7 +1276,10 @@ fn draw_imgui(
                 coins.is_some()
             };
             if coins_changed {
-                file.edit_map(&mut commands, MapEdit::ChangeCoins(range, vec![coins.unwrap(); range.area()]));
+                if coins == Some(0) {
+                    coins = None;
+                }
+                file.edit_map(&mut commands, MapEdit::ChangeCoins(range, vec![coins; range.area()]));
             }
 
             let mut walk_over = range
